@@ -1,0 +1,62 @@
+name: Build imzDesk
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Nuxt app
+        working-directory: app
+        run: |
+          pnpm run build
+          npx nuxi generate
+
+      - name: Copy built UI into package
+        shell: bash
+        run: |
+          rm -rf src/imzdesk/ui/*
+          mkdir -p src/imzdesk/ui
+          cp -r app/.output/public/* src/imzdesk/ui/
+
+      - name: Install Python build backend
+        run: python -m pip install --upgrade build
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: imzdesk-dist
+          path: dist/*

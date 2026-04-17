@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=82", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imzDesk"
+version = "0.1.0"
+description = "Mass Spectrometry Imaging Toolkit"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Mohammad Farahmand" }
+]
+dependencies = [
+    "fastapi~=0.136.0",
+    "pydantic~=2.13.2",
+    "uvicorn~=0.44.0",
+]
+
+[project.scripts]
+imzdesk = "imzdesk.entry:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+imzdesk = [
+    "ui/**/*",
+]
