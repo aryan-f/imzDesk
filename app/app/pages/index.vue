@@ -1,76 +1,135 @@
+<script setup lang="ts">
+type HealthResponse = {
+  status: string
+}
+
+const {
+  data,
+  error,
+  pending,
+  refresh,
+} = await useFetch<HealthResponse>(`/api/health`, {
+  default: () => ({ status: '' }),
+})
+
+const manualData = ref<HealthResponse | null>(null)
+const manualError = ref<unknown>(null)
+const manualPending = ref(false)
+
+const manualFetch = async () => {
+  manualPending.value = true
+  manualError.value = null
+
+  try {
+    manualData.value = await $fetch<HealthResponse>(`/api/health`)
+  } catch (err) {
+    manualError.value = err
+    manualData.value = null
+  } finally {
+    manualPending.value = false
+  }
+}
+
+const useFetchMessage = computed(() => {
+  if (pending.value) return 'Checking API health with useFetch...'
+  if (error.value) return 'The API health check failed.'
+  if (data.value?.status === 'ok') return 'The API is healthy.'
+  return 'The API returned an unexpected response.'
+})
+
+const manualMessage = computed(() => {
+  if (manualPending.value) return 'Checking API health with $fetch...'
+  if (manualError.value) return 'The manual API health check failed.'
+  if (!manualData.value) return 'No manual request has been made yet.'
+  if (manualData.value.status === 'ok') return 'The manual API check succeeded.'
+  return 'The manual request returned an unexpected response.'
+})
+
+const formatJson = (value: unknown) => JSON.stringify(value, null, 2)
+</script>
+
 <template>
-  <div>
-    <UPageHero
-      title="Nuxt Starter Template"
-      description="A production-ready starter template powered by Nuxt UI. Build beautiful, accessible, and performant applications in minutes, not hours."
-      :links="[{
-        label: 'Get started',
-        to: 'https://ui.nuxt.com/docs/getting-started/installation/nuxt',
-        target: '_blank',
-        trailingIcon: 'i-lucide-arrow-right',
-        size: 'xl'
-      }, {
-        label: 'Use this template',
-        to: 'https://github.com/nuxt-ui-templates/starter',
-        target: '_blank',
-        icon: 'i-simple-icons-github',
-        size: 'xl',
-        color: 'neutral',
-        variant: 'subtle'
-      }]"
-    />
+  <UContainer class="py-12">
+    <div class="mx-auto max-w-3xl">
+      <div class="mb-8 text-center">
+        <h1 class="text-3xl font-bold tracking-tight">API Health Check</h1>
+        <p class="mt-2 text-sm text-muted">
+          This page tests both <code>useFetch</code> and <code>$fetch</code> against
+          <code>/api/health</code>.
+        </p>
+      </div>
 
-    <UPageSection
-      id="features"
-      title="Everything you need to build modern Nuxt apps"
-      description="Start with a solid foundation. This template includes all the essentials for building production-ready applications with Nuxt UI's powerful component system."
-      :features="[{
-        icon: 'i-lucide-rocket',
-        title: 'Production-ready from day one',
-        description: 'Pre-configured with TypeScript, ESLint, Tailwind CSS, and all the best practices. Focus on building features, not setting up tooling.'
-      }, {
-        icon: 'i-lucide-palette',
-        title: 'Beautiful by default',
-        description: 'Leveraging Nuxt UI\'s design system with automatic dark mode, consistent spacing, and polished components that look great out of the box.'
-      }, {
-        icon: 'i-lucide-zap',
-        title: 'Lightning fast',
-        description: 'Optimized for performance with SSR/SSG support, automatic code splitting, and edge-ready deployment. Your users will love the speed.'
-      }, {
-        icon: 'i-lucide-blocks',
-        title: '100+ components included',
-        description: 'Access Nuxt UI\'s comprehensive component library. From forms to navigation, everything is accessible, responsive, and customizable.'
-      }, {
-        icon: 'i-lucide-code-2',
-        title: 'Developer experience first',
-        description: 'Auto-imports, hot module replacement, and TypeScript support. Write less boilerplate and ship more features.'
-      }, {
-        icon: 'i-lucide-shield-check',
-        title: 'Built for scale',
-        description: 'Enterprise-ready architecture with proper error handling, SEO optimization, and security best practices built-in.'
-      }]"
-    />
+      <div class="grid gap-6 md:grid-cols-2">
+        <UCard>
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h2 class="text-lg font-semibold">useFetch</h2>
+                <p class="text-sm text-muted">Loaded automatically on page render</p>
+              </div>
 
-    <UPageSection>
-      <UPageCTA
-        title="Ready to build your next Nuxt app?"
-        description="Join thousands of developers building with Nuxt and Nuxt UI. Get this template and start shipping today."
-        variant="subtle"
-        :links="[{
-          label: 'Start building',
-          to: 'https://ui.nuxt.com/docs/getting-started/installation/nuxt',
-          target: '_blank',
-          trailingIcon: 'i-lucide-arrow-right',
-          color: 'neutral'
-        }, {
-          label: 'View on GitHub',
-          to: 'https://github.com/nuxt-ui-templates/starter',
-          target: '_blank',
-          icon: 'i-simple-icons-github',
-          color: 'neutral',
-          variant: 'outline'
-        }]"
-      />
-    </UPageSection>
-  </div>
+              <UButton
+                :loading="pending"
+                icon="i-lucide-refresh-cw"
+                @click="refresh()"
+              >
+                Request again
+              </UButton>
+            </div>
+          </template>
+
+          <UAlert
+            :color="error ? 'error' : data?.status === 'ok' ? 'success' : 'neutral'"
+            :title="useFetchMessage"
+            variant="soft"
+          />
+
+          <div class="mt-4">
+            <p class="mb-2 text-sm font-medium">Raw JSON</p>
+            <pre class="overflow-x-auto rounded-lg bg-muted p-4 text-sm">{{ formatJson(data) }}</pre>
+          </div>
+
+          <div v-if="error" class="mt-4">
+            <p class="mb-2 text-sm font-medium">Error</p>
+            <pre class="overflow-x-auto rounded-lg bg-muted p-4 text-sm">{{ formatJson(error) }}</pre>
+          </div>
+        </UCard>
+
+        <UCard>
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h2 class="text-lg font-semibold">$fetch</h2>
+                <p class="text-sm text-muted">Triggered manually without page refresh</p>
+              </div>
+
+              <UButton
+                :loading="manualPending"
+                icon="i-lucide-play"
+                @click="manualFetch"
+              >
+                Request now
+              </UButton>
+            </div>
+          </template>
+
+          <UAlert
+            :color="manualError ? 'error' : manualData?.status === 'ok' ? 'success' : 'neutral'"
+            :title="manualMessage"
+            variant="soft"
+          />
+
+          <div class="mt-4">
+            <p class="mb-2 text-sm font-medium">Raw JSON</p>
+            <pre class="overflow-x-auto rounded-lg bg-muted p-4 text-sm">{{ formatJson(manualData) }}</pre>
+          </div>
+
+          <div v-if="manualError" class="mt-4">
+            <p class="mb-2 text-sm font-medium">Error</p>
+            <pre class="overflow-x-auto rounded-lg bg-muted p-4 text-sm">{{ formatJson(manualError) }}</pre>
+          </div>
+        </UCard>
+      </div>
+    </div>
+  </UContainer>
 </template>
