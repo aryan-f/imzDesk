@@ -8,15 +8,15 @@ from .server import create_app
 
 def run():
     parser = argparse.ArgumentParser(prog="imzdesk")
-    parser.add_argument("path", help="Directory to inspect")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--open", action="store_true")
+    parser.add_argument("path", default='.', help="Target directory")
+    parser.add_argument("-H", "--host", default="127.0.0.1")
+    parser.add_argument("-P", "--port", type=int, default=8000)
+    parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
     data_root = Path(args.path).resolve()
 
-    if args.open:
+    if not args.no_browser:
         webbrowser.open(f"http://{args.host}:{args.port}")
 
     factory = create_app(data_root)
@@ -26,6 +26,4 @@ def run():
         host=args.host,
         port=args.port,
         factory=True,
-        # reload=False,
-        # env_file=None,
     )
