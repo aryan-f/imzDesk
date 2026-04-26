@@ -12,6 +12,7 @@ authors = [
     { name = "Mohammad Farahmand" }
 ]
 dependencies = [
+    "aiofiles==25.1.0",
     "fastapi~=0.136.0",
     "pydantic~=2.13.2",
     "uvicorn~=0.44.0",

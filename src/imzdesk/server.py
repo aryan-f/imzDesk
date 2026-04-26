@@ -5,13 +5,13 @@ from fastapi.responses import FileResponse
 from .api.routes import router as api_router
 
 
-def create_app(data_root: Path):
+def create_app(root: Path):
 
     def factory() -> FastAPI:
         app = FastAPI(title='imzDesk')
 
         # Global state
-        app.state.data_root = data_root
+        app.state.root = root
 
         # API Endpoints
         app.include_router(api_router, prefix='/api')

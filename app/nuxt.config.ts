@@ -19,6 +19,15 @@ export default defineNuxtConfig({
     },
   },
 
+  vite: {
+    optimizeDeps: {
+      include: [
+        'plotly.js-dist',
+        'pretty-bytes',
+      ]
+    }
+  },
+
   compatibilityDate: '2026-04-17',
 
   css: ['~/assets/css/main.css'],
