@@ -1,12 +1,4 @@
 <script setup lang="ts">
-import type { NavigationMenuItem } from '@nuxt/ui'
-
-const items = ref<NavigationMenuItem[]>([
-  {
-    label: 'Images',
-    to: '/',
-  },
-])
 </script>
 
 
@@ -20,17 +12,25 @@ const items = ref<NavigationMenuItem[]>([
           <span class="text-primary">Desk</span>
         </span>
       </div>
-      <nav class="flex items-center gap-4 text-sm">
-        <UNavigationMenu :items="items"/>
-      </nav>
     </div>
     <div class="flex items-center gap-3">
       <UTooltip text="Color Mode">
         <UColorModeButton />
       </UTooltip>
-      <UTooltip text="Settings">
-        <UButton icon="i-lucide-settings" color="neutral" variant="ghost" />
-      </UTooltip>
+      <UModal title="Settings">
+        <UTooltip text="Settings">
+          <UButton icon="i-lucide-settings" color="neutral" variant="ghost" />
+        </UTooltip>
+        <template #body>
+          <USkeleton class="h-48 m-4" />
+        </template>
+        <template #footer>
+          <div class="flex justify-end w-full gap-2">
+            <UButton color="neutral">Discard</UButton>
+            <UButton color="success">Save Changes</UButton>
+          </div>
+        </template>
+      </UModal>
       <UTooltip text="Shut Down">
         <UButton icon="i-lucide-power" color="neutral" variant="ghost" />
       </UTooltip>
