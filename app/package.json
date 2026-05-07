@@ -15,7 +15,7 @@
     "@iconify-json/simple-icons": "^1.2.78",
     "@nuxt/ui": "^4.6.1",
     "nuxt": "^4.4.2",
-    "plotly.js-dist": "^3.5.0",
+    "plotly.js-dist": "^3.5.1",
     "pretty-bytes": "^7.1.0",
     "tailwindcss": "^4.2.2"
   },

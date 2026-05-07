@@ -1,4 +1,6 @@
-import { defineAsyncComponent } from 'vue'
+import {defineAsyncComponent} from 'vue'
+// @ts-ignore
+import imzMLViewer from '../components/imzML/Viewer.vue'
 
 export type FileType = {
   extension: string
@@ -7,7 +9,11 @@ export type FileType = {
 }
 
 export const FILE_TYPES: FileType[] = [
-
+  {
+    extension: '.imzml',
+    icon: 'dashicons-image-filter',
+    component: imzMLViewer,
+  },
 ]
 
 export function getFileType(filename: string): FileType | undefined {

@@ -21,8 +21,8 @@ importers:
         specifier: ^4.4.2
         version: 4.4.2(@babel/core@7.29.0)(@babel/plugin-syntax-jsx@7.28.6(@babel/core@7.29.0))(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@parcel/watcher@2.5.6)(@vue/compiler-sfc@3.5.31)(cac@6.7.14)(db0@0.3.4)(eslint@10.2.0(jiti@2.6.1))(ioredis@5.10.1)(lightningcss@1.32.0)(magicast@0.5.2)(optionator@0.9.4)(rollup-plugin-visualizer@7.0.1(rollup@4.60.1))(rollup@4.60.1)(terser@5.46.1)(typescript@6.0.2)(vite@7.3.1(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))(vue-tsc@3.2.6(typescript@6.0.2))(yaml@2.8.3)
       plotly.js-dist:
-        specifier: ^3.5.0
-        version: 3.5.0
+        specifier: ^3.5.1
+        version: 3.5.1
       pretty-bytes:
         specifier: ^7.1.0
         version: 7.1.0
@@ -3818,8 +3818,8 @@ packages:
   pkg-types@2.3.0:
     resolution: {integrity: sha512-SIqCzDRg0s9npO5XQ3tNZioRY1uK06lA41ynBC1YmFTmnY6FjUjVt6s4LoADmwoig1qqD0oK8h1p/8mlMx8Oig==}
 
-  plotly.js-dist@3.5.0:
-    resolution: {integrity: sha512-syvVpwKdofB5VTQ+faAVt7GOnrG/xPUMnBZyGWwjaDxYVbonsUZbmqKrvfnF21497SlTuBi45xYxVXkc88WjAA==}
+  plotly.js-dist@3.5.1:
+    resolution: {integrity: sha512-ZalyufrVSy5R7y1FWCJZSkm/ACw/5fid6taqUkR8HZfHPBkUDAdxSg1+Rjhe5kB/euLqq/PF4Ug9kD1NeLOmxQ==}
 
   pluralize@8.0.0:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
@@ -9104,7 +9104,7 @@ snapshots:
       exsolve: 1.0.8
       pathe: 2.0.3
 
-  plotly.js-dist@3.5.0: {}
+  plotly.js-dist@3.5.1: {}
 
   pluralize@8.0.0: {}
 

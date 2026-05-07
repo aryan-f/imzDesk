@@ -1,10 +1,19 @@
+import asyncio
+import hashlib
+import os
+import pickle
+import tempfile
+from collections.abc import Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial, wraps
 from pathlib import Path
+from typing import Any, ParamSpec, TypeVar
 
 import aiofiles.os
 from fastapi import HTTPException
 
 
-async def raise_on_path(path, root=None, *suffixes, dir_only=False):
+async def raise_on_path(path, *suffixes, root=None, dir_only=False):
     """
     Raises an exception if the path is not *valid*.
 
@@ -12,10 +21,10 @@ async def raise_on_path(path, root=None, *suffixes, dir_only=False):
     ----------
     path: Path
         Path to be checked.
-    root: Path, optional
-        The root path to be checked against.
     suffixes: str, optional
         Allowed suffixes for path.
+    root: Path, optional
+        The root path to be checked against.
     dir_only: bool, optional
         Only accept directory paths.
 
@@ -60,3 +69,57 @@ def get_cached_path(owner, suffix):
     """
     cache_dir = owner.parent / '.imzDesk'
     return cache_dir / owner.with_suffix(suffix).name
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def asynced(func: Callable[P, R]) -> Callable[..., Coroutine[Any, Any, R]]:
+
+    @wraps(func)
+    async def wrapper(*args: P.args, executor: ThreadPoolExecutor | None = None, **kwargs: P.kwargs) -> R:
+        loop = asyncio.get_running_loop()
+        call = partial(func, *args, **kwargs)
+        return await loop.run_in_executor(executor, call)
+
+    return wrapper
+
+
+U = ParamSpec("U")
+V = TypeVar("V")
+
+
+def stashed(func: Callable[U, V]) -> Callable[U, V]:
+
+    @wraps(func)
+    def wrapper(filepath: Path, **kwargs: Any) -> V:
+        key_data = pickle.dumps(
+            tuple(sorted(kwargs.items(), key=lambda item: item[0])),
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+
+        key = hashlib.blake2b(key_data, digest_size=16).hexdigest()
+        cache_path = filepath.parent / f"{func.__name__}.{key}.pickle"
+
+        if cache_path.exists():
+            with cache_path.open("rb") as file:
+                return pickle.load(file)
+
+        result = func(filepath, **kwargs)
+
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=filepath.parent,
+            prefix=f".{func.__name__}.{key}.",
+            suffix=".tmp",
+            delete=False,
+        ) as file:
+            temp_path = Path(file.name)
+            pickle.dump(result, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+        os.replace(temp_path, cache_path)
+
+        return result
+
+    return wrapper

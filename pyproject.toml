@@ -14,7 +14,10 @@ authors = [
 dependencies = [
     "aiofiles==25.1.0",
     "fastapi~=0.136.0",
+    "h5py~=3.16.0",
+    "hdf5plugin~=6.0.0",
     "pydantic~=2.13.2",
+    "pyimzml~=1.5.5",
     "uvicorn~=0.44.0",
 ]
 

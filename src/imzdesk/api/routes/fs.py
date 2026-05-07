@@ -13,7 +13,7 @@ router = APIRouter()
 async def list(request: Request, path: str = Query('.')):
     root = request.app.state.root
     dirpath = root / Path(path.lstrip('/'))
-    await raise_on_path(dirpath, root, dir_only=True)
+    await raise_on_path(dirpath, root=root, dir_only=True)
     entries = await aiofiles.os.listdir(dirpath)
     return [
         {
@@ -29,7 +29,7 @@ async def list(request: Request, path: str = Query('.')):
 async def stat(request: Request, path: str = Query('.')):
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
-    await raise_on_path(target, root)
+    await raise_on_path(target, root=root)
     info = await aiofiles.os.stat(target)
     return {
         'name': target.name,

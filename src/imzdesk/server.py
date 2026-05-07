@@ -1,17 +1,23 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
 from .api.routes import router as api_router
 
 
-def create_app(root: Path):
+def create_app(root, num_workers):
 
     def factory() -> FastAPI:
         app = FastAPI(title='imzDesk')
 
         # Global state
         app.state.root = root
+
+        # Thread Pool
+        app.state.thread_pool = ThreadPoolExecutor(max_workers=num_workers)
 
         # API Endpoints
         app.include_router(api_router, prefix='/api')
