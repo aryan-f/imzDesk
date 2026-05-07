@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
 
 
 watch(
-  () => [props.mode, props.data, props.loading],
+  () => [props.mode, props.loading],
   async () => {
     await nextTick()
     if (!props.data) {
