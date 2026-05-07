@@ -32,6 +32,9 @@ const trace = computed(() => {
       return {
         type: 'heatmap',
         z: transformedData.value,
+        hovertemplate: '(x:%{x}, y:%{y})<br>TIC=<b>%{z}</b>',
+        showlegend: false,
+        name: '',
       }
   }
 })
