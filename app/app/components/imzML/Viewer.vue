@@ -59,6 +59,10 @@ function onFailed() {
     color: 'error'
   })
 }
+
+const display = reactive({
+  log1p: false,
+})
 </script>
 
 <template>
@@ -79,11 +83,13 @@ function onFailed() {
             <UButton color="neutral" size="xs" :disabled="!ready" @click="onUpdate">Update</UButton>
           </div>
           <div class="shrink-0 flex items-center gap-2">
+            <UCheckbox label="Log" size="xs" v-model="display.log1p" />
+            <USeparator orientation="vertical" class="ml-1.5" />
             <ImzMLLoader :path="path" @ready="onReady" @failed="onFailed" />
           </div>
         </div>
         <div class="flex-1 p-3 pt-0">
-          <ImzMLImage :mode="mode" :data="image" :loading="loading" />
+          <ImzMLImage :mode="mode" :loading="loading" :data="image" :display="display" />
         </div>
       </div>
       <div class="h-90 shrink-0 border-t border-default flex flex-col">

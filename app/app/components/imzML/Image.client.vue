@@ -6,20 +6,33 @@ const props = defineProps<{
   mode: string
   data: number[][] | null
   loading?: boolean
+  display: {
+    log1p: boolean
+  }
 }>()
 
 const colorMode = useColorMode()
 
 const container = ref<HTMLElement | null>(null)
 
-const traces = computed(() => {
+const transformedData = computed(() => {
+  if (!props.data) return null
+
+  if (props.display.log1p)
+    return props.data.map(row => row.map(value => Math.log10(value + 1)))
+
+  return props.data
+})
+
+const trace = computed(() => {
   if (!props.data) return []
 
   switch (props.mode) {
     case 'tic':
-      return [
-        { z: props.data, type: 'heatmap' }
-      ]
+      return {
+        type: 'heatmap',
+        z: transformedData.value,
+      }
   }
 })
 
@@ -36,7 +49,7 @@ const layout = computed(() => {
   // noinspection SpellCheckingInspection
   return {
     autosize: true,
-    margin: { t: 0, r: 0, b: 36, l: 36 },
+    margin: { t: 0, r: 0, b: 36, l: 40 },
     paper_bgcolor: theme.value.paper,
     plot_bgcolor: theme.value.plot,
     font: {
@@ -74,7 +87,7 @@ async function renderPlot() {
 
   await Plotly.react(
     container.value,
-    traces.value,
+    [trace.value],
     layout.value,
     config.value,
   )
@@ -104,11 +117,17 @@ watch(
       purgePlot()
       return
     }
-    if (!props.loading) {
-      await renderPlot()
-    }
+    await renderPlot()
   },
   { immediate: true }
+)
+
+watch(
+  () => props.display,
+  async () => {
+    await renderPlot()
+  },
+  { deep: true }
 )
 
 watch(
