@@ -31,7 +31,7 @@ const color = computed(() => {
 
 const phaseLabel = computed(() => {
   if (phase.value === 'checking') return 'Checking for cached data...'
-  if (phase.value === 'reading') return 'Parsing the source file...'
+  if (phase.value === 'reading') return 'Parsing the .imzML file...'
   if (phase.value === 'indexing') return 'Indexing the spectra...'
   if (phase.value === 'processing') return 'Writing viewer data...'
   if (phase.value === 'sorting') return 'Sorting the values and saving...'

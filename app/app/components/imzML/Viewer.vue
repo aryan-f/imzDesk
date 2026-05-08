@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { type Selection } from './Image.client.vue'
 
 const toast = useToast()
 
@@ -10,6 +11,8 @@ const ready = ref<boolean>(false)
 
 const loading = ref<boolean>(true)
 const image = ref<number[][] | null>(null)
+const height = ref<number | null>(null)
+const width = ref<number | null>(null)
 
 async function fetchImage() {
   loading.value = true
@@ -20,6 +23,8 @@ async function fetchImage() {
       query: { path: props.path }
     })
     image.value = data.values
+    height.value = data.height
+    width.value = data.width
   } catch (error) {
     toast.add({
       title: 'Failed to load image.',
@@ -63,6 +68,19 @@ function onFailed() {
 const display = reactive({
   log1p: false,
 })
+
+const selections = ref<Selection[]>([])
+
+watch(
+  () => props.path,
+  () => {
+    loading.value = true
+    image.value = null
+    height.value = null
+    width.value = null
+    selections.value = []
+  }
+)
 </script>
 
 <template>
@@ -89,7 +107,15 @@ const display = reactive({
           </div>
         </div>
         <div class="flex-1 p-3 pt-0">
-          <ImzMLImage :mode="mode" :loading="loading" :data="image" :display="display" />
+          <ImzMLImage
+            :mode="mode"
+            :loading="loading"
+            :display="display"
+            :height="height"
+            :width="width"
+            :data="image"
+            v-model:selections="selections"
+          />
         </div>
       </div>
       <div class="h-90 shrink-0 border-t border-default flex flex-col">
