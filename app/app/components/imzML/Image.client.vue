@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // @ts-ignore
 import Plotly from 'plotly.js-dist'
+// @ts-ignore
+import RandomColor from 'random-color'
 
 export type Selection = {
   id: string
@@ -12,7 +14,7 @@ export type Selection = {
   y0: number
   y1: number
   yref: 'y'
-  line?: {
+  line: {
     color?: string
     width?: number
     opacity?: number
@@ -60,7 +62,7 @@ const annotations = computed(() => {
     xanchor: 'left',
     yanchor: 'bottom',
     font: {
-      color: 'white' // TODO: selection.line?.color
+      color: selection.line.color
     }
   }))
 })
@@ -210,6 +212,15 @@ function labelFromIndex(index: number) {
   return label
 }
 
+
+let selectionColorHue = Math.random()
+
+function randomSelectionColor(saturation = 75, lightness = 75) {
+  selectionColorHue += 0.618033988749895  // golden ratio
+  selectionColorHue %= 1
+  return `hsl(${selectionColorHue * 360}, ${saturation}%, ${lightness}%)`
+}
+
 function emitSelections() {
   if (!plot.value) return
 
@@ -223,9 +234,11 @@ function emitSelections() {
 
   const update = selections.map((selection: any) => {
     const id = selection.id ?? nextId++
+    const color = selection.line?.color ?? randomSelectionColor()
     return {
       ...selection,
       id: id,
+      line: { dash: 'solid', color, width: 3 },
       label: selection.label ?? labelFromIndex(id),
     }
   })
