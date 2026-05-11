@@ -101,3 +101,12 @@ def tic_from_imz5(filepath):
     imz5 = IMZ5(filepath)
     assert imz5.ndim == 2, '3D images are not currently supported.'
     return imz5.tic()
+
+
+@asynced
+@stashed
+def spectrum(filepath, x_min, x_max, y_min, y_max):
+    imz5 = IMZ5(filepath)
+    assert imz5.ndim == 2, '3D images are not currently supported.'
+    loc, val = imz5.spectrum(x_min, x_max, y_min, y_max)
+    return {'mz': loc.tolist(), 'intensity': val.tolist()}

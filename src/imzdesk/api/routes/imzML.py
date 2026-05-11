@@ -5,9 +5,10 @@ from pathlib import Path
 
 import aiofiles
 import aiofiles.os
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Body, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
+from .. import schema
 from ..services import imzML
 from ..utils import (
     raise_on_path,
@@ -78,13 +79,15 @@ async def convert(request: Request, path: str = Query('.')):
 
 
 @router.post('/image')
-async def image_tic(request: Request, path: str = Query('.')):
+async def image(request: Request, path: str = Query('.')):
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
 
     cached_imz5 = get_cached_path(target, '.imz5')
     await raise_on_path(cached_imz5, '.imz5')
+
+    # TODO: Implement other modes.
 
     im = await imzML.tic_from_imz5(cached_imz5, executor=request.app.state.thread_pool)
     height, width = im.shape
@@ -95,3 +98,23 @@ async def image_tic(request: Request, path: str = Query('.')):
         'height': height,
         'width': width,
     }
+
+
+@router.post('/spectrum')
+async def spectrum(request: Request, path: str = Query('.'), bounds: schema.SpectrumBounds = Body(default=None)):
+    root = request.app.state.root
+    target = root / Path(path.lstrip('/'))
+    await raise_on_path(target, '.imzML', root=root)
+
+    cached_imz5 = get_cached_path(target, '.imz5')
+    await raise_on_path(cached_imz5, '.imz5')
+
+    bounds = bounds or schema.SpectrumBounds()
+
+    spectrum = await imzML.spectrum(
+        cached_imz5,
+        **bounds.model_dump(),
+        executor=request.app.state.thread_pool
+    )
+
+    return spectrum

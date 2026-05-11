@@ -74,6 +74,7 @@ const selections = ref<Selection[]>([])
 watch(
   () => props.path,
   () => {
+    ready.value = false
     loading.value = true
     image.value = null
     height.value = null
@@ -132,7 +133,7 @@ watch(
           </div>
         </div>
         <div class="flex-1 p-3 pt-0">
-          <!--DisplaySpectrum-->
+          <ImzMLSpectrum :path="props.path" :ready="ready" :selections="selections" />
         </div>
       </div>
     </div>

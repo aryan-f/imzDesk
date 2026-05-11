@@ -1,8 +1,6 @@
 <script setup lang="ts">
 // @ts-ignore
 import Plotly from 'plotly.js-dist'
-// @ts-ignore
-import RandomColor from 'random-color'
 
 export type Selection = {
   id: string
@@ -74,6 +72,8 @@ const trace = computed(() => {
     case 'tic':
       return {
         type: 'heatmap',
+        x0: 1,
+        y1: 1,
         z: transformedData.value,
         hovertemplate: '(x:%{x}, y:%{y})<br>TIC=<b>%{z}</b>',
         showlegend: false,
@@ -94,13 +94,12 @@ const theme = computed(() => {
 const layout = computed(() => {
   return {
     autosize: true,
-    dragmode: 'zoom',
+    dragmode: 'pan',
+    uirevision: 'keep-zoom',
     margin: { t: 0, r: 0, b: 36, l: 40 },
     paper_bgcolor: theme.value.paper,
     plot_bgcolor: theme.value.plot,
-    font: {
-      color: theme.value.text,
-    },
+    font: { color: theme.value.text },
     xaxis: {
       showgrid: false,
       zeroline: false,
@@ -151,6 +150,7 @@ async function renderPlot() {
 
   plot.value.on('plotly_selected', () => emitSelections())
   plot.value.on('plotly_deselect', () => emitSelections())
+  // TODO: Generate pixel-size selections on plotly_click
 }
 
 function purgePlot() {
