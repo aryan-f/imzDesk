@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // @ts-ignore
 import Plotly from 'plotly.js-dist'
-import { type Selection } from './Image.client.vue'
+import {type Selection} from '~/types/imzML'
 
 const props = defineProps<{
   path: string
@@ -44,7 +44,7 @@ const selectionSpectra = ref<Record<string, Spectrum>>({})
 // Tracks the latest in-flight request per selection to avoid duplicate or stale updates.
 const pendingSelectionRequests = new Map<string, string>()
 
-// Guards against old full-image requests overwriting newer results after path/ready changes.
+// Guards against old full-values requests overwriting newer results after path/ready changes.
 let fullImageFetchVersion = 0
 
 function boundsFromSelection(selection: Selection): SpectrumRequest {
@@ -81,7 +81,7 @@ async function fetchFullImageSpectrum() {
 
   const version = ++fullImageFetchVersion
 
-  // Only the full-image spectrum controls the visible loading state.
+  // Only the full-values spectrum controls the visible loading state.
   loading.value = true
 
   try {
@@ -90,8 +90,8 @@ async function fetchFullImageSpectrum() {
     if (version !== fullImageFetchVersion) return
 
     fullImageSpectrum.value = {
-      id: 'full-image',
-      label: 'Full image',
+      id: 'full-values',
+      label: 'Image',
       x: spectrum.mz,
       y: spectrum.intensity,
     }
@@ -160,7 +160,7 @@ async function syncSelectionSpectra() {
     const existingSpectrum = selectionSpectra.value[selection.id]
 
     if (existingSpectrum?.requestKey === requestKey) {
-      // Metadata changes should update the trace without refetching spectrum data.
+      // Metadata changes should update the trace without refetching spectrum values.
       nextSelectionSpectra[selection.id] = {
         ...existingSpectrum,
         label: selection.label,
@@ -196,7 +196,7 @@ const traces = computed(() => {
   ]
 
   return orderedSpectra.map((spectrum) => {
-    const isFullImage = spectrum.id === 'full-image'
+    const isFullImage = spectrum.id === 'full-values'
 
     return {
       x: spectrum.x,
@@ -234,10 +234,10 @@ const theme = computed(() => {
 const layout = computed(() => {
   return {
     autosize: true,
-    dragmode: 'pan',
+    dragmode: 'zoom',
     uirevision: 'keep-zoom',
     barmode: 'overlay',
-    margin: { t: 1, r: 136, b: 36, l: 54 },
+    margin: { t: 16, r: 16, b: 36, l: 54 },
     paper_bgcolor: theme.value.paper,
     plot_bgcolor: theme.value.plot,
     font: {
@@ -255,7 +255,6 @@ const layout = computed(() => {
     },
     yaxis: {
       title: { text: 'Relative Intensity' },
-      range: [0, 1],
       mirror: true,
       fixedrange: true,
       gridcolor: theme.value.grid,
@@ -361,7 +360,7 @@ watch(
 
 <template>
   <div class="relative h-full w-full">
-    <ClientOnly>
+    <ClientOnly v-if="traces.length">
       <div ref="container" class="h-full w-full" />
     </ClientOnly>
     <USkeleton v-if="loading" class="absolute inset-0 h-full w-full" />

@@ -5667,7 +5667,7 @@ snapshots:
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
-      - '@azure/data-tables'
+      - '@azure/values-tables'
       - '@azure/identity'
       - '@azure/keyvault-secrets'
       - '@azure/storage-blob'
@@ -5794,7 +5794,7 @@ snapshots:
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
-      - '@azure/data-tables'
+      - '@azure/values-tables'
       - '@azure/identity'
       - '@azure/keyvault-secrets'
       - '@azure/storage-blob'
@@ -5918,7 +5918,7 @@ snapshots:
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
-      - '@azure/data-tables'
+      - '@azure/values-tables'
       - '@azure/identity'
       - '@azure/keyvault-secrets'
       - '@azure/storage-blob'
@@ -8071,7 +8071,7 @@ snapshots:
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
-      - '@azure/data-tables'
+      - '@azure/values-tables'
       - '@azure/identity'
       - '@azure/keyvault-secrets'
       - '@azure/storage-blob'
@@ -8696,7 +8696,7 @@ snapshots:
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
-      - '@azure/data-tables'
+      - '@azure/values-tables'
       - '@azure/identity'
       - '@azure/keyvault-secrets'
       - '@azure/storage-blob'
@@ -8822,7 +8822,7 @@ snapshots:
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
-      - '@azure/data-tables'
+      - '@azure/values-tables'
       - '@azure/identity'
       - '@azure/keyvault-secrets'
       - '@azure/storage-blob'

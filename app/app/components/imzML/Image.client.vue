@@ -1,33 +1,12 @@
 <script setup lang="ts">
 // @ts-ignore
 import Plotly from 'plotly.js-dist'
-
-export type Selection = {
-  id: string
-  label: string
-  type: 'rect'
-  x0: number
-  x1: number
-  xref: 'x'
-  y0: number
-  y1: number
-  yref: 'y'
-  line: {
-    color?: string
-    width?: number
-    opacity?: number
-  }
-}
+import {type ImageResponse, type Selection} from '~/types/imzML'
 
 const props = defineProps<{
-  mode: string
   loading: boolean
-  data: number[][] | null
-  height: number | null
-  width: number | null
-  display: {
-    log1p: boolean
-  }
+  image: ImageResponse | null
+  display: { log1p: boolean }
   selections: Selection[]
 }>()
 
@@ -40,13 +19,13 @@ const colorMode = useColorMode()
 const container = ref<HTMLElement | null>(null)
 const plot = ref<Plotly.PlotlyHTMLElement | null>(null)
 
-const transformedData = computed(() => {
-  if (!props.data) return null
+const transformedValues = computed(() => {
+  if (!props.image) return null
 
   if (props.display.log1p)
-    return props.data.map(row => row.map(value => Math.log10(value + 1)))
+    return props.image.values.map(row => row.map(value => Math.log10(value + 1)))
 
-  return props.data
+  return props.image.values
 })
 
 const annotations = computed(() => {
@@ -66,19 +45,64 @@ const annotations = computed(() => {
 })
 
 const trace = computed(() => {
-  if (!props.data) return []
+  if (!props.image) return []
 
-  switch (props.mode) {
+  switch (props.image.mode) {
     case 'tic':
       return {
         type: 'heatmap',
-        x0: 1,
-        y1: 1,
-        z: transformedData.value,
+        x: props.image.coords.x,
+        y: props.image.coords.y,
+        z: transformedValues.value,
         hovertemplate: '(x:%{x}, y:%{y})<br>TIC=<b>%{z}</b>',
+        colorscale: 'Viridis',
         showlegend: false,
         name: '',
       }
+
+    case 'ion':
+      return {
+        type: 'heatmap',
+        x: props.image.coords.x,
+        y: props.image.coords.y,
+        z: transformedValues.value,
+        hovertemplate: '(x:%{x}, y:%{y})<br>Intensity=<b>%{z}</b>',
+        colorscale: 'Viridis',
+        showlegend: false,
+        name: '',
+      }
+
+    case 'pca':
+      return {
+        type: 'image',
+        x0: props.image.coords.x[0],
+        y0: props.image.coords.y[0],
+        dx: 1,
+        dy: 1,
+        z: props.image.values.map((row: any) =>
+          row.map((pixel: any) =>
+            pixel.map((channel: number) => Math.round(channel * 255))
+          )
+        ),
+        hovertemplate: '(x:%{x}, y:%{y})',
+        showlegend: false,
+        name: '',
+      }
+
+    case 'kmn':
+      return {
+        type: 'heatmap',
+        x: props.image.coords.x,
+        y: props.image.coords.y,
+        z: props.image.values,
+        hovertemplate: '(x:%{x}, y:%{y})<br>Cluster=<b>%{z}</b>',
+        colorscale: 'Jet',
+        showlegend: false,
+        name: '',
+      }
+
+    default:
+      return []
   }
 })
 
@@ -94,9 +118,9 @@ const theme = computed(() => {
 const layout = computed(() => {
   return {
     autosize: true,
-    dragmode: 'pan',
-    uirevision: 'keep-zoom',
-    margin: { t: 0, r: 0, b: 36, l: 40 },
+    dragmode: 'zoom',
+    uirevision: true,
+    margin: { t: 36, r: 0, b: 0, l: 40 },
     paper_bgcolor: theme.value.paper,
     plot_bgcolor: theme.value.plot,
     font: { color: theme.value.text },
@@ -106,6 +130,8 @@ const layout = computed(() => {
       showline: false,
       ticks: 'outside',
       showticklabels: true,
+      constrain: 'range',
+      side: 'top',
     },
     yaxis: {
       showgrid: false,
@@ -115,6 +141,8 @@ const layout = computed(() => {
       showticklabels: true,
       scaleanchor: 'x',
       scaleratio: 1,
+      constrain: 'range',
+      autorange: 'reversed',
     },
     selections: props.selections,
     annotations: annotations.value,
@@ -130,14 +158,14 @@ const config = computed(() => {
 })
 
 async function renderPlot() {
-  if (!container.value || props.loading || !props.data) return
+  if (!container.value || props.loading || !props.image) return
 
   const traces = [
     // We have to have an invisible plot that actually supports selection tools for them to show up.
     {
       type: 'scatter',
-      x: [(props.width || 0) / 2],
-      y: [(props.height || 0) / 2],
+      x: [(props.image.width || 0) / 2],
+      y: [(props.image.height || 0) / 2],
       marker: { size: 1 },
       hoverinfo: 'skip',
       opacity: 0
@@ -171,10 +199,10 @@ onBeforeUnmount(() => {
 
 
 watch(
-  () => [props.mode, props.loading],
+  () => [props.image, props.loading],
   async () => {
     await nextTick()
-    if (!props.data) {
+    if (!props.image) {
       purgePlot()
       return
     }

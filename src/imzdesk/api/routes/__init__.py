@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from .fs import router as fs_router
+from .filesystem import router as fs_router
 from .imzML import router as imzML_router
 
 router = APIRouter()

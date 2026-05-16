@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 import os
 import pickle
 import tempfile
@@ -76,6 +77,14 @@ R = TypeVar("R")
 
 
 def asynced(func: Callable[P, R]) -> Callable[..., Coroutine[Any, Any, R]]:
+    """
+    Offloads ``func`` to a thread, returning an ``awaitable``.
+
+    When wrapped function is being called, you may pass in a ``ThreadPoolExecutor`` as a keyword argument, ``executor``.
+    In this case, the wrapped function will borrow a thread from the pool, rather than spawning a fresh one.
+
+    Apply this decorator BEFORE ``stashed``.
+    """
 
     @wraps(func)
     async def wrapper(*args: P.args, executor: ThreadPoolExecutor | None = None, **kwargs: P.kwargs) -> R:
@@ -91,16 +100,23 @@ V = TypeVar("V")
 
 
 def stashed(func: Callable[U, V]) -> Callable[U, V]:
+    """
+    Caches the outputs of the wrapped function to a `pickle` file.
+
+    Wrapped function MUST have ``filepath: Path`` as its first and only positional argument. The wrapper will save the
+    `pickle` file to ``filepath.parent``.
+
+    Keyword arguments passed to the function are hashed to generate a ``key``, using which the decorator then names the
+    `pickle` file as ``<func_name>.<key>.pickle``.
+
+    Apply this decorator AFTER ``asynced``.
+    """
 
     @wraps(func)
     def wrapper(filepath: Path, **kwargs: Any) -> V:
-        key_data = pickle.dumps(
-            tuple(sorted(kwargs.items(), key=lambda item: item[0])),
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
-
-        key = hashlib.blake2b(key_data, digest_size=16).hexdigest()
-        cache_path = filepath.parent / f"{func.__name__}.{key}.pickle"
+        key_data = json.dumps({key: json_or_none(value) for key, value in kwargs.items()})
+        key = hashlib.blake2b(key_data.encode('utf-8'), digest_size=16).hexdigest()
+        cache_path = filepath.parent / f"{filepath.stem}.{func.__name__}.{key}.pickle"
 
         if cache_path.exists():
             with cache_path.open("rb") as file:
@@ -123,3 +139,10 @@ def stashed(func: Callable[U, V]) -> Callable[U, V]:
         return result
 
     return wrapper
+
+
+def json_or_none(obj: Any) -> str | None:
+    try:
+        return json.dumps(obj)
+    except TypeError:
+        return None

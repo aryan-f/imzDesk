@@ -20,6 +20,21 @@ router = APIRouter()
 
 @router.get('/converted')
 async def converted(request: Request, path: str = Query('.')):
+    """
+    Checks whether the given .imzML file has yet been converted to an .imz5 file.
+
+    Parameters
+    ----------
+    request: Request
+        FastAPI request object.
+    path: str
+        Path to the .imzML file.
+
+    Returns
+    -------
+    exists: bool
+        ``True`` if the .imzML file has been converted to an .imz5 file.
+    """
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
@@ -29,6 +44,24 @@ async def converted(request: Request, path: str = Query('.')):
 
 @router.post('/convert', response_class=EventSourceResponse)
 async def convert(request: Request, path: str = Query('.')):
+    """
+    Converts an .imzML file to an .imz5 file.
+
+    The function offloads the heavy computation to a thread that it borrows from the global thread pool, continuously
+    sending updates back to the client as **server-sent events**.
+
+    Parameters
+    ----------
+    request: Request
+        FastAPI request object.
+    path: str
+        The path to the .imzML file.
+
+    Yields
+    ------
+    ServerSentEvent
+        Progress event.
+    """
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
@@ -41,7 +74,7 @@ async def convert(request: Request, path: str = Query('.')):
 
     def worker(source, destination, loop, events, cancelled):
         try:
-            for event in imzML.imzML_to_imz5(source, destination, cancelled=cancelled.is_set):
+            for event in imzML.convert(source, destination, cancelled=cancelled.is_set):
                 loop.call_soon_threadsafe(events.put_nowait, {'event': 'progress', 'data': event})
             loop.call_soon_threadsafe(events.put_nowait, {'event': 'done', 'data': {'phase': 'done', 'progress': 1}})
         except Exception as exception:
@@ -79,7 +112,7 @@ async def convert(request: Request, path: str = Query('.')):
 
 
 @router.post('/image')
-async def image(request: Request, path: str = Query('.')):
+async def image(request: Request, path: str = Query('.'), body: schema.ImageRequest = Body(default=None)):
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
@@ -87,21 +120,26 @@ async def image(request: Request, path: str = Query('.')):
     cached_imz5 = get_cached_path(target, '.imz5')
     await raise_on_path(cached_imz5, '.imz5')
 
-    # TODO: Implement other modes.
+    body = body or schema.ImageRequest()
 
-    im = await imzML.tic_from_imz5(cached_imz5, executor=request.app.state.thread_pool)
-    height, width = im.shape
+    image, (x, y) = await imzML.image_2d(
+        cached_imz5,
+        **body.model_dump(),
+        executor=request.app.state.thread_pool,
+    )
+    height, width, *channels = image.shape
 
     return {
-        'mode': 'tic',
-        'values': im.tolist(),
+        'mode': body.mode,
+        'coords': {'x': x.tolist(), 'y': y.tolist()},
+        'values': image.tolist(),
         'height': height,
         'width': width,
     }
 
 
 @router.post('/spectrum')
-async def spectrum(request: Request, path: str = Query('.'), bounds: schema.SpectrumBounds = Body(default=None)):
+async def spectrum(request: Request, path: str = Query('.'), body: schema.SpectrumRequest = Body(default=None)):
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
@@ -109,11 +147,11 @@ async def spectrum(request: Request, path: str = Query('.'), bounds: schema.Spec
     cached_imz5 = get_cached_path(target, '.imz5')
     await raise_on_path(cached_imz5, '.imz5')
 
-    bounds = bounds or schema.SpectrumBounds()
+    body = body or schema.SpectrumRequest()
 
-    spectrum = await imzML.spectrum(
+    spectrum = await imzML.spectrum_2d(
         cached_imz5,
-        **bounds.model_dump(),
+        **body.model_dump(),
         executor=request.app.state.thread_pool
     )
 

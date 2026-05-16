@@ -6,13 +6,15 @@ import h5py
 import hdf5plugin
 import numpy as np
 from pyimzml.ImzMLParser import ImzMLParser
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 
 from imz5 import IMZ5
 from imz5.schema import A
 from ..utils import asynced, stashed
 
 
-def imzML_to_imz5(source: Path, destination: Path, cancelled: Callable[[], bool] = lambda: False):
+def convert(source: Path, destination: Path, cancelled: Callable[[], bool] = lambda: False):
     def check_cancelled():
         if cancelled():
             raise RuntimeError('Conversion cancelled.')
@@ -97,16 +99,109 @@ def imzML_to_imz5(source: Path, destination: Path, cancelled: Callable[[], bool]
 
 @asynced
 @stashed
-def tic_from_imz5(filepath):
-    imz5 = IMZ5(filepath)
-    assert imz5.ndim == 2, '3D images are not currently supported.'
-    return imz5.tic()
+def coordinates_2d(filepath: Path, file: IMZ5):
+    coords = file.scatter(file.coordinates[:])
+    coords = coords[0, :, :, :2]
+    return coords[0, :, 0], coords[:, 0, 1]
 
 
 @asynced
 @stashed
-def spectrum(filepath, x_min, x_max, y_min, y_max):
-    imz5 = IMZ5(filepath)
-    assert imz5.ndim == 2, '3D images are not currently supported.'
-    loc, val = imz5.spectrum(x_min, x_max, y_min, y_max)
-    return {'mz': loc.tolist(), 'intensity': val.tolist()}
+def tic_2d(filepath: Path, file: IMZ5):
+    vals = file.values[:]
+    ids = file.ids[:]
+    num_pixels = len(file.offsets) - 1
+    tic = np.bincount(ids, weights=vals, minlength=num_pixels)
+    return file.scatter(tic).squeeze()
+
+
+@asynced
+@stashed
+def ion_2d(filepath: Path, file: IMZ5, mz: float, tolerance: float):
+    point_indices = file.mask_ion(mz, tolerance)
+    if not len(point_indices):
+        return np.zeros(file.shape).squeeze()
+    num_pixels = len(file.offsets) - 1
+    pixel_ids = file.ids[:][point_indices]
+    point_vals = file.values[:][point_indices]
+    per_pixel = np.bincount(pixel_ids, weights=point_vals, minlength=num_pixels)
+    return file.scatter(per_pixel).squeeze()
+
+
+@stashed
+def pca_2d_raw(filepath: Path, file: IMZ5, bin_width, n_components, normalization):
+    matrix, bins = file.binned(bin_width, normalization)
+    pca = PCA(n_components=max(n_components, 3))
+    return pca.fit_transform(matrix)
+
+
+@asynced
+def pca_2d(filepath: Path, file: IMZ5, bin_width, n_components, normalization):
+    scores = pca_2d_raw(filepath, file=file, bin_width=bin_width, n_components=n_components, normalization=normalization)
+    lo = scores.min(axis=0)
+    hi = scores.max(axis=0)
+    hi[hi == lo] = 1
+    scores = (scores - lo) / (hi - lo)
+    return file.scatter(scores).squeeze()
+
+
+@asynced
+@stashed
+def kmn_2d(filepath: Path, file: IMZ5, bin_width, n_components, normalization, n_clusters):
+    scores = pca_2d_raw(filepath, file=file, bin_width=bin_width, n_components=n_components, normalization=normalization)
+    labels = KMeans(n_clusters=n_clusters, n_init='auto').fit_predict(scores).astype(np.int32)
+    return file.scatter(labels).squeeze()
+    
+
+async def image_2d(filepath, mode, executor, **kwargs):
+    with (IMZ5(filepath) as file):
+        depth, height, width = file.shape
+        assert depth == 1, f'Expected a 2D image. Got {file.shape}'
+        coords = await coordinates_2d(filepath, file=file, executor=executor)
+        match mode:
+            case 'tic':
+                return await tic_2d(
+                    filepath,
+                    file=file,
+                    executor=executor
+                ), coords
+            case 'ion':
+                return await ion_2d(
+                    filepath,
+                    file=file,
+                    mz=kwargs['targetIon'],
+                    tolerance=kwargs['tolerance'],
+                    executor=executor
+                ), coords
+            case 'pca':
+                return await pca_2d(
+                    filepath,
+                    file=file,
+                    bin_width=kwargs['binWidth'],
+                    n_components=kwargs['numComponents'],
+                    normalization=kwargs['normalization'],
+                    executor=executor
+                ), coords
+            case 'kmn':
+                return await kmn_2d(
+                    filepath,
+                    file=file,
+                    bin_width=kwargs['binWidth'],
+                    n_components=kwargs['numComponents'],
+                    normalization=kwargs['normalization'],
+                    n_clusters=kwargs['numClusters'],
+                    executor=executor
+                ), coords
+            case other:
+                # Unlikely to hit; schema will reject such requests. regardless:
+                raise NotImplementedError
+
+
+@asynced
+@stashed
+def spectrum_2d(filepath, x_min, x_max, y_min, y_max, precision):
+    with IMZ5(filepath) as file:
+        depth, height, width = file.shape
+        assert depth == 1, f'Expected a 2D image. Got {file.shape}'
+        locs, vals = file.spectrum(x_min, x_max, y_min, y_max, precision=precision)
+        return {'mz': locs.tolist(), 'intensity': vals.tolist()}
