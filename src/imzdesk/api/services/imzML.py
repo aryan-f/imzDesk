@@ -83,11 +83,9 @@ def convert(source: Path, destination: Path, cancelled: Callable[[], bool] = lam
                         'progress': i / num_pixels,
                     }
 
-            yield {'phase': 'sorting'}
+            yield {'phase': 'closing'}
 
             check_cancelled()
-            order = np.argsort(locations[:], kind='mergesort')
-            h5.create_dataset(A.ORDER, data=order, dtype=np.int64, compression=compression)
 
         os.replace(temporary, destination)
 

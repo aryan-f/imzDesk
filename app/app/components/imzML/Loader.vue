@@ -34,7 +34,7 @@ const phaseLabel = computed(() => {
   if (phase.value === 'reading') return 'Parsing the .imzML file...'
   if (phase.value === 'indexing') return 'Indexing the spectra...'
   if (phase.value === 'processing') return 'Writing viewer data...'
-  if (phase.value === 'sorting') return 'Sorting the values and saving...'
+  if (phase.value === 'closing') return 'Closing up the data file...'
   if (phase.value === 'done') return 'Data is ready for viewing.'
   if (phase.value === 'failed') return 'Data preparation onFailed.'
   return 'Preparing file...'

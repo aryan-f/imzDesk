@@ -50,8 +50,7 @@ class IMZ5:
     def locations(self) -> h5py.Dataset:
         """
         m/z locations of all spectral points across all pixels, as a flat `(M)` ``float64`` array, where `M` is the
-        total number of spectral points. Not sorted by pixel; use ``offsets`` to slice per-pixel ranges, or ``order``
-        for globally sorted access.
+        total number of spectral points. Not sorted by pixel; use ``offsets`` to slice per-pixel ranges.
         """
         return self.file[A.LOCATIONS]
 
@@ -70,15 +69,6 @@ class IMZ5:
         aggregation via ``np.bincount``.
         """
         return self.file[A.IDS]
-
-    @property
-    def order(self) -> h5py.Dataset:
-        """
-        ``argsort`` indices that sort locations in ascending m/z order, as a `(M)` ``int64`` array. Computed with a
-        stable ``mergesort`` during conversion. Use to access ``locations``, ``values``, and ``ids`` in globally
-        sorted m/z order without modifying the underlying arrays.
-        """
-        return self.file[A.ORDER]
 
     @cached_property
     def bounds(self) -> tuple[float, float, float, float, float, float]:
@@ -184,7 +174,7 @@ class IMZ5:
     def mask_ion(self, mz, tolerance=0.01):
         """
         Returns the indices (into ``locations``/``values``/``ids``) of all spectral points whose m/z falls within
-        `[mz - tolerance / 2, mz + tolerance / 2]`, using the precomputed sorted order for efficient binary search.
+        `[mz - tolerance / 2, mz + tolerance / 2]`.
 
         Parameters
         ----------
@@ -199,11 +189,9 @@ class IMZ5:
             Indices into the flat spectral arrays.
         """
         half = tolerance / 2
-        order = self.order[:]
-        sorted_locs = self.locations[:][order]
-        start = np.searchsorted(sorted_locs, mz - half, side='left')
-        end = np.searchsorted(sorted_locs, mz + half, side='right')
-        return order[start:end]
+        lo, hi = mz - half, mz + half
+        locations = self.locations[:]
+        return np.flatnonzero((locations >= lo) & (locations <= hi))
 
     def spectrum(self, x_min=-np.inf, x_max=np.inf, y_min=-np.inf, y_max=np.inf, z_min=-np.inf, z_max=np.inf, precision=0.001):
         """

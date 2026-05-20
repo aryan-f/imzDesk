@@ -6,5 +6,4 @@ class A(StrEnum):
     COORDINATES = 'coordinates'
     LOCATIONS = 'locations'
     VALUES = 'values'
-    ORDER = 'order'
     IDS = 'ids'
