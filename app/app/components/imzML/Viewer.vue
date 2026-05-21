@@ -161,11 +161,8 @@ watch(
         </div>
       </div>
     </div>
-    <div class="w-64 shrink-0 border-l border-default">
-      <div class="flex flex-col gap-2 p-4">
-        <div class="text-sm font-bold mb-1.5">Meta Data</div>
-        <div class="text-xs">To be implemented...</div>
-      </div>
+    <div class="w-72 shrink-0 border-l border-default flex flex-col">
+      <ImzMLMetadata :path="path" />
     </div>
   </div>
 </template>

@@ -72,6 +72,25 @@ def get_cached_path(owner, suffix):
     return cache_dir / owner.with_suffix(suffix).name
 
 
+def get_metadata_path(owner, suffix='.meta.yaml'):
+    """
+    Returns the path to the metadata file for a given owner.
+
+    Parameters
+    ----------
+    owner: Path
+        The path to the owner of the metadata file.
+    suffix: str, optional
+        Desired suffix for the file.
+
+    Returns
+    -------
+    Path
+        The path to where the metadata file should be found.
+    """
+    return owner.with_suffix(suffix)
+
+
 P = ParamSpec("P")
 R = TypeVar("R")
 

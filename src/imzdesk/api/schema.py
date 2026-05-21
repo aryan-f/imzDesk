@@ -15,3 +15,9 @@ class SpectrumRequest(BaseModel):
     y_min: float = -np.inf
     y_max: float = np.inf
     precision: float = 1
+
+
+class Metadata(BaseModel):
+    key: str
+    value: float | int | str | bool
+    original_key: str = None

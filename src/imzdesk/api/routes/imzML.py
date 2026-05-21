@@ -9,7 +9,10 @@ from fastapi import APIRouter, Body, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from .. import schema
-from ..services import imzML
+from ..services import (
+    imzML,
+    metadata,
+)
 from ..utils import (
     raise_on_path,
     get_cached_path,
@@ -190,3 +193,62 @@ async def spectrum(request: Request, path: str = Query('.'), body: schema.Spectr
     )
 
     return spectrum
+
+
+@router.get('/metadata')
+async def get_metadata(request: Request, path: str = Query('.')):
+    """
+    Returns the associated metadata of an .imzML file.
+
+    Parameters
+    ----------
+    request: Request
+        FastAPI request object.
+    path: str
+        Path to the .imzML file.
+
+    Returns
+    -------
+    list
+        Contains the metadata as a list of dictionaries, each containing ``"key"`` and ``"value"``.
+    """
+    root = request.app.state.root
+    target = root / Path(path.lstrip('/'))
+    await raise_on_path(target, '.imzML', root=root)
+
+    data = await metadata.read(target)
+
+    return [schema.Metadata(key=key, value=value) for key, value in data.items()]
+
+
+@router.put('/metadata')
+async def put_metadata(request: Request, path: str = Query('.'), body: list[schema.Metadata] = Body(default_factory=list),):
+    """
+    Writes the associated metadata of an .imzML file.
+
+    Parameters
+    ----------
+    request: Request
+        FastAPI request object.
+    path: str
+        Path to the .imzML file.
+    body: list[schema.Metadata]
+        Flat metadata rows, each containing ``"key"`` and ``"value"``.
+
+    Returns
+    -------
+    list
+        Saved metadata as a list of dictionaries, each containing ``"key"`` and ``"value"``.
+    """
+    root = request.app.state.root
+    target = root / Path(path.lstrip('/'))
+    await raise_on_path(target, '.imzML', root=root)
+
+    data = {}
+    for item in body:
+        key = item.key.strip()
+        data[key] = item.value
+
+    await metadata.write(target, data)
+
+    return [schema.Metadata(key=key, value=value) for key, value in data.items()]
