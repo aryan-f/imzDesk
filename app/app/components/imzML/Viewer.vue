@@ -118,22 +118,22 @@ watch(
               <template #content>
                 <div class="flex flex-col gap-2 p-4">
                   <UFormField v-if="mode === 'ion'" orientation="horizontal" label="Target Ion:" size="sm">
-                    <UInputNumber v-model="targetIon" color="neutral" min="1" max="2000" step="0.1" orientation="vertical" />
+                    <UInputNumber v-model="targetIon" color="neutral" :min="1" max="2000" :step="0.1" orientation="vertical" />
                   </UFormField>
                   <UFormField v-if="mode === 'ion'" orientation="horizontal" label="Tolerance:" size="sm">
-                    <UInputNumber v-model="tolerance" color="neutral" min="0.001" step="0.001" orientation="vertical" />
+                    <UInputNumber v-model="tolerance" color="neutral" :min="0.001" :step="0.001" orientation="vertical" />
                   </UFormField>
                   <UFormField v-if="mode === 'pca' || mode == 'kmn'" orientation="horizontal" label="Bin Width:" size="sm">
-                    <UInputNumber v-model="binWidth" color="neutral" min="0.001" step="0.001" orientation="vertical" />
+                    <UInputNumber v-model="binWidth" color="neutral" :min="0.001" :step="0.001" orientation="vertical" />
                   </UFormField>
                   <UFormField v-if="mode === 'pca' || mode == 'kmn'" orientation="horizontal" label="Number of Components:" size="sm">
-                    <UInputNumber v-model="numComponents" color="neutral" min="3" step="1" orientation="vertical" />
+                    <UInputNumber v-model="numComponents" color="neutral" :min="3" :step="1" orientation="vertical" />
                   </UFormField>
                   <UFormField v-if="mode === 'pca' || mode == 'kmn'" orientation="horizontal" label="Normalization:" size="sm">
                     <USelect v-model="normalization" :items="normalizations" orientation="vertical" class="w-45" />
                   </UFormField>
                   <UFormField v-if="mode == 'kmn'" orientation="horizontal" label="Number of Clusters:" size="sm">
-                    <UInputNumber v-model="numClusters" color="neutral" min="2" step="1" orientation="vertical" />
+                    <UInputNumber v-model="numClusters" color="neutral" :min="2" :step="1" orientation="vertical" />
                   </UFormField>
                 </div>
               </template>
