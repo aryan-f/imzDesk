@@ -46,6 +46,15 @@ watchEffect(() => {
 
 const selected = ref<string | null>(null)
 
+const search = ref('')
+
+const listViewport = ref<HTMLElement | null>(null)
+const viewportHeight = ref(0)
+const scrollTop = ref(0)
+
+const rowHeight = 30  // Determines how many items fit in the viewport
+const overscan = 50  // How many rows to render besides the ones currently visible
+
 const dirpath = computed(() => {
   selected.value = null // Deselect file/directory on change to route
   const parts = props.path.split('/').filter(Boolean)
@@ -58,8 +67,15 @@ const dirpath = computed(() => {
   return parts
 })
 
+watch(dirpath, () => {
+  selected.value = null
+  search.value = ''
+  scrollTop.value = 0
+  listViewport.value?.scrollTo({ top: 0 })
+})
+
 const breadcrumbs = computed(() => {
-  const root = { 'icon': 'material-symbols-folder', to: '/' }
+  const root = { icon: 'material-symbols-folder', to: '/' }
   const parts = dirpath.value.map((part, index) => ({
     to: '/' + dirpath.value.slice(0, index + 1).join('/'),
     label: part.length > props.maxLen ? part.slice(0, props.maxLen) + '…' : part,
@@ -81,6 +97,58 @@ const { data: list } = await useLazyFetch<ListItem[]>('/api/fs/list', {
       return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })  // alphabetical
     })
   },
+})
+
+const filteredList = computed(() => {
+  const query = search.value.trim().toLowerCase()
+  if (!query) return list.value
+  return list.value.filter(item => item.name.toLowerCase().includes(query))
+})
+
+const totalHeight = computed(() => filteredList.value.length * rowHeight)
+
+const visibleStart = computed(() => {
+  return Math.max(0, Math.floor(scrollTop.value / rowHeight) - overscan)
+})
+
+const visibleEnd = computed(() => {
+  return Math.min(
+    filteredList.value.length,
+    Math.ceil((scrollTop.value + viewportHeight.value) / rowHeight) + overscan,
+  )
+})
+
+const virtualList = computed(() => {
+  return filteredList.value.slice(visibleStart.value, visibleEnd.value)
+})
+
+const offsetTop = computed(() => visibleStart.value * rowHeight)
+
+watch(search, () => {
+  selected.value = null
+  scrollTop.value = 0
+  listViewport.value?.scrollTo({ top: 0 })
+})
+
+function updateViewportHeight() {
+  viewportHeight.value = listViewport.value?.clientHeight ?? 0
+}
+
+function onScroll() {
+  scrollTop.value = listViewport.value?.scrollTop ?? 0
+}
+
+let resizeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  updateViewportHeight()
+  if (!listViewport.value) return
+  resizeObserver = new ResizeObserver(updateViewportHeight)
+  resizeObserver.observe(listViewport.value)
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
 })
 
 function getLink(item: ListItem) {
@@ -126,37 +194,52 @@ function goTo(item: ListItem) {
     <div class="shrink-0 border-b border-default">
       <div class="flex items-center gap-1 px-1.5 h-9">
         <template v-for="(crumb, index) in breadcrumbs" :key="index">
-          <UButton
-            :icon="crumb.icon"
-            :to="crumb.to"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            class="px-1 py-0.5"
-          >
+          <UButton :icon="crumb.icon" :to="crumb.to" variant="ghost" color="neutral" size="sm" class="px-1 py-0.5">
             {{ crumb.label }}
           </UButton>
           <span>/</span>
         </template>
       </div>
-    </div>
-    <div class="flex-1 overflow-x-hidden overflow-y-auto scrollbar-thin flex flex-col">
-      <template v-for="(item, index) in list" :key="index">
-        <UTooltip :text="getTooltip(item)">
-          <UButton
-            :icon="getIcon(item)"
-            :to="getLink(item)"
-            :color="getColor(item)"
-            :disabled="isDisabled(item)"
-            :variant="selected === item.name ? 'subtle' : 'ghost'"
-            class="px-2 py-1.25 text-left rounded-none whitespace-nowrap"
-            @click.prevent="setSelected(item)"
-            @dblclick="goTo(item)"
-          >
-            {{ item.name }}
+      <div class="flex items-center gap-1.5 px-1.5 pb-1.5">
+        <UInput v-model="search" icon="i-lucide-search" placeholder="Search by name..." size="sm" class="flex-1" />
+        <UPopover>
+          <UButton icon="i-lucide-sliders-horizontal" color="neutral" variant="soft" size="sm">
+            Filters
           </UButton>
-        </UTooltip>
-      </template>
+          <template #content>
+            <div class="p-3 text-sm text-muted">
+              Not yet implemented.
+            </div>
+          </template>
+        </UPopover>
+      </div>
+    </div>
+    <div ref="listViewport" class="flex-1 overflow-x-hidden overflow-y-auto scrollbar-thin" @scroll="onScroll">
+      <div v-if="filteredList.length" class="relative" :style="{ height: `${totalHeight}px` }">
+        <div class="absolute inset-x-0 top-0" :style="{ transform: `translateY(${offsetTop}px)` }">
+          <template v-for="item in virtualList" :key="item.name">
+            <UTooltip :text="getTooltip(item)">
+              <UButton
+                :icon="getIcon(item)"
+                :to="getLink(item)"
+                :color="getColor(item)"
+                :disabled="isDisabled(item)"
+                :variant="selected === item.name ? 'subtle' : 'ghost'"
+                class="w-full h-8 px-2 py-0 text-left justify-start rounded-none whitespace-nowrap"
+                @click.prevent="setSelected(item)"
+                @dblclick="goTo(item)"
+              >
+                {{ item.name }}
+              </UButton>
+            </UTooltip>
+          </template>
+        </div>
+      </div>
+      <div v-else class="px-3 py-4 text-sm text-muted">
+        <template v-if="search">
+          No items found.
+        </template>
+      </div>
     </div>
   </div>
 </template>
