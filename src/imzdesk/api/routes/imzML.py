@@ -113,6 +113,23 @@ async def convert(request: Request, path: str = Query('.')):
 
 @router.post('/image')
 async def image(request: Request, path: str = Query('.'), body: schema.ImageRequest = Body(default=None)):
+    """
+    Generates a 2D image from an .imzML file.
+
+    Parameters
+    ----------
+    request: Request
+        FastAPI request object.
+    path: str
+        The path to the .imzML file.
+    body: schema.ImageRequest, optional
+        Image generation parameters.
+
+    Returns
+    -------
+    dict
+        Containing the generated image.
+    """
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
@@ -140,6 +157,23 @@ async def image(request: Request, path: str = Query('.'), body: schema.ImageRequ
 
 @router.post('/spectrum')
 async def spectrum(request: Request, path: str = Query('.'), body: schema.SpectrumRequest = Body(default=None)):
+    """
+    Generates a 2D spectrum from an .imzML file.
+
+    Parameters
+    ----------
+    request: Request
+        FastAPI request object.
+    path: str
+        The path to the .imzML file.
+    body: schema.SpectrumRequest, optional
+        Specifies the target region in the image.
+
+    Returns
+    -------
+    dict
+        Containing ``"mz"`` and ``"intensity"``.
+    """
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
