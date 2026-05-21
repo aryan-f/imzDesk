@@ -1,4 +1,5 @@
 import os
+import warnings
 from pathlib import Path
 from typing import Callable
 
@@ -12,6 +13,9 @@ from sklearn.decomposition import PCA
 from imz5 import IMZ5
 from imz5.schema import A
 from ..utils import asynced, stashed
+
+
+warnings.filterwarnings('ignore', message=r'Accession .* found with incorrect name .*', category=UserWarning, module='pyimzml')
 
 
 def convert(source: Path, destination: Path, cancelled: Callable[[], bool] = lambda: False):
