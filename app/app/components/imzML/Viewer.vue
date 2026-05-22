@@ -138,7 +138,7 @@ watch(
                 </div>
               </template>
             </UPopover>
-            <UButton color="neutral" :disabled="!ready" @click="onUpdate">Update</UButton>
+            <UButton color="neutral" :loading="loading && ready" :disabled="!ready" @click="onUpdate">Update</UButton>
           </div>
           <div class="shrink-0 flex items-center gap-2">
             <UCheckbox label="Log" size="xs" v-model="display.log1p" />
@@ -148,7 +148,7 @@ watch(
         </div>
         <div class="flex-1 p-3 pt-0">
           <ImzMLImage
-            :loading="loading"
+            :loading="!ready || image === null"
             :display="display"
             :image="image"
             v-model:selections="selections"
