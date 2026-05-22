@@ -15,7 +15,7 @@ from ..services import (
 )
 from ..utils import (
     raise_on_path,
-    get_cached_path,
+    get_derived_file_path,
 )
 
 router = APIRouter()
@@ -41,7 +41,7 @@ async def converted(request: Request, path: str = Query('.')):
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
-    cached_imz5 = get_cached_path(target, '.imz5')
+    cached_imz5 = get_derived_file_path(target, '.imz5')
     return await aiofiles.os.path.exists(cached_imz5)
 
 
@@ -73,7 +73,7 @@ async def convert(request: Request, path: str = Query('.')):
     cancelled = threading.Event()
     loop = asyncio.get_running_loop()
 
-    cached_imz5 = get_cached_path(target, '.imz5')
+    cached_imz5 = get_derived_file_path(target, '.imz5')
 
     def worker(source, destination, loop, events, cancelled):
         try:
@@ -137,7 +137,7 @@ async def image(request: Request, path: str = Query('.'), body: schema.ImageRequ
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
 
-    cached_imz5 = get_cached_path(target, '.imz5')
+    cached_imz5 = get_derived_file_path(target, '.imz5')
     await raise_on_path(cached_imz5, '.imz5')
 
     body = body or schema.ImageRequest()
@@ -181,7 +181,7 @@ async def spectrum(request: Request, path: str = Query('.'), body: schema.Spectr
     target = root / Path(path.lstrip('/'))
     await raise_on_path(target, '.imzML', root=root)
 
-    cached_imz5 = get_cached_path(target, '.imz5')
+    cached_imz5 = get_derived_file_path(target, '.imz5')
     await raise_on_path(cached_imz5, '.imz5')
 
     body = body or schema.SpectrumRequest()

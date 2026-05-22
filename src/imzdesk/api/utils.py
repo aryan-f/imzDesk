@@ -52,23 +52,25 @@ async def raise_on_path(path, *suffixes, root=None, dir_only=False):
             raise HTTPException(status_code=405)
 
 
-def get_cached_path(owner, suffix):
+def get_derived_file_path(owner, suffix, dirname='.imzDesk'):
     """
-    Resolves the path to a *cache* file, corresponding to some `owner`.
+    Resolves the path to a *derived* file, corresponding to some `owner`.
 
     Parameters
     ----------
     owner: Path
-        The path to the owner of the *cache* file.
+        The path to the owner of the *derived* file.
     suffix: str
         Desired suffix for the file.
+    dirname: str, optional
+        Intermediate directory name.
 
     Returns
     -------
     Path
         The path where the *cache* file should be found.
     """
-    cache_dir = owner.parent / '.imzDesk'
+    cache_dir = (owner.parent / dirname) if dirname else owner.parent
     return cache_dir / owner.with_suffix(suffix).name
 
 
@@ -80,7 +82,7 @@ def get_metadata_path(owner, suffix='.meta.yaml'):
     ----------
     owner: Path
         The path to the owner of the metadata file.
-    suffix: str, optional
+    suffix: str
         Desired suffix for the file.
 
     Returns
@@ -135,7 +137,7 @@ def stashed(func: Callable[U, V]) -> Callable[U, V]:
     def wrapper(filepath: Path, **kwargs: Any) -> V:
         key_data = json.dumps({key: json_or_none(value) for key, value in kwargs.items()})
         key = hashlib.blake2b(key_data.encode('utf-8'), digest_size=16).hexdigest()
-        cache_path = filepath.parent / f"{filepath.stem}.{func.__name__}.{key}.pickle"
+        cache_path = get_derived_file_path(filepath, f".{func.__name__}.{key}.pickle", dirname=None)
 
         if cache_path.exists():
             with cache_path.open("rb") as file:
