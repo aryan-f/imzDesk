@@ -200,16 +200,18 @@ class IMZ5:
 
         Parameters
         ----------
-        x_min, x_max, y_min, y_max, z_min, z_max : float
+        x_min, x_max, y_min, y_max, z_min, z_max: float
             Inclusive coordinate bounds. Default to -inf/inf (entire image).
-        precision : float
+        precision: float
             m/z values are rounded to this interval before aggregation,
             collapsing near-duplicate peaks. Default 0.001.
 
         Returns
         -------
-        locations : ndarray, float64
-        values : ndarray, float32
+        locations: np.ndarray
+            Mass-to-charge ratios.
+        values: np.ndarray
+            Intensity values.
         """
         coords = self.coordinates[:]
         x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
