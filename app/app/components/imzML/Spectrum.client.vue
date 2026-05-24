@@ -160,7 +160,7 @@ async function syncSelectionSpectra() {
     const existingSpectrum = selectionSpectra.value[selection.id]
 
     if (existingSpectrum?.requestKey === requestKey) {
-      // Metadata changes should update the trace without refetching spectrum values.
+      // Metadata changes should update the imageTrace without refetching spectrum values.
       nextSelectionSpectra[selection.id] = {
         ...existingSpectrum,
         label: selection.label,
@@ -216,6 +216,7 @@ const traces = computed(() => {
         'Intensity: %{y:.2f}%',
         '<extra>%{fullData.name}</extra>',
       ].join('<br>'),
+      showlegend: true,
     }
   })
 })
@@ -237,14 +238,14 @@ const layout = computed(() => {
     dragmode: 'zoom',
     uirevision: 'keep-zoom',
     barmode: 'overlay',
-    margin: { t: 16, r: 16, b: 36, l: 54 },
+    margin: { t: 16, r: 16, b: 36, l: 72 },
     paper_bgcolor: theme.value.paper,
     plot_bgcolor: theme.value.plot,
     font: {
       color: theme.value.text,
     },
     xaxis: {
-      title: { text: 'm/z' },
+      title: { text: 'Mass-to-Charge Ratio', standoff: 20, font: { size: 12} },
       mirror: true,
       fixedrange: false,
       gridcolor: theme.value.grid,
@@ -254,13 +255,27 @@ const layout = computed(() => {
       spikecolor: theme.value.spike,
     },
     yaxis: {
-      title: { text: 'Relative Intensity' },
+      title: { text: 'Relative Intensity', standoff: 10, font: { size: 12} },
       mirror: true,
       fixedrange: true,
       gridcolor: theme.value.grid,
       linecolor: theme.value.axis,
       zerolinecolor: theme.value.axis,
     },
+    annotations: [
+      {
+        text: '(TIC Normalized)',
+        xref: 'paper',
+        yref: 'paper',
+        x: -0.07,
+        y: 0.5,
+        showarrow: false,
+        textangle: -90,
+        font: { size: 10 },
+        xanchor: 'center',
+        yanchor: 'middle'
+      }
+    ],
   }
 })
 
