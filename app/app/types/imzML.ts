@@ -1,9 +1,19 @@
 export interface ImageResponse {
   mode: string
-  coords: { x: number[], y: number[] }
-  values: number[][]
+  image: string
   height: number
   width: number
+  origin: number[]
+  delta: number[]
+  colorbar?: {
+    cmin: number
+    cmax: number
+    colorscale: string
+    tickmode?: string
+    tickvals?: number[]
+    ticktext?: string[]
+    labels?: string[]
+  }
 }
 
 export type Selection = {

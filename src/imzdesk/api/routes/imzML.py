@@ -142,19 +142,20 @@ async def image(request: Request, path: str = Query('.'), body: schema.ImageRequ
 
     body = body or schema.ImageRequest()
 
-    image, (x, y) = await imzML.image_2d(
+    image, height, width, origin, delta, colorbar = await imzML.image_2d(
         cached_imz5,
         **body.model_dump(),
         executor=request.app.state.thread_pool,
     )
-    height, width, *channels = image.shape
 
     return {
         'mode': body.mode,
-        'coords': {'x': x.tolist(), 'y': y.tolist()},
-        'values': image.tolist(),
+        'image': image,
         'height': height,
         'width': width,
+        'origin': origin,
+        'delta': delta,
+        'colorbar': colorbar,
     }
 
 
@@ -175,7 +176,7 @@ async def spectrum(request: Request, path: str = Query('.'), body: schema.Spectr
     Returns
     -------
     dict
-        Containing ``"mz"`` and ``"intensity"``.
+        Containing ``"mz"`` and ``"intensity"`` (TIC-normalized).
     """
     root = request.app.state.root
     target = root / Path(path.lstrip('/'))
@@ -186,13 +187,13 @@ async def spectrum(request: Request, path: str = Query('.'), body: schema.Spectr
 
     body = body or schema.SpectrumRequest()
 
-    spectrum = await imzML.spectrum_2d(
+    locs, vals = await imzML.spectrum_2d(
         cached_imz5,
         **body.model_dump(),
         executor=request.app.state.thread_pool
     )
 
-    return spectrum
+    return {'mz': locs.tolist(), 'intensity': vals.tolist()}
 
 
 @router.get('/metadata')

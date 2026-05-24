@@ -1,17 +1,20 @@
 import asyncio
+import base64
 import hashlib
 import json
-import os
 import pickle
-import tempfile
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
+from io import BytesIO
 from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
 
 import aiofiles.os
+import numpy as np
+from PIL import Image
 from fastapi import HTTPException
+from matplotlib import colormaps
 
 
 async def raise_on_path(path, *suffixes, root=None, dir_only=False):
@@ -74,6 +77,33 @@ def get_derived_file_path(owner, suffix, dirname='.imzDesk'):
     return cache_dir / owner.with_suffix(suffix).name
 
 
+def get_cache_file_path(owner, uid, ext='', dirname=None, kwargs: dict = None):
+    """
+    Resolves the path to a *cache* file for derived data.
+
+    Parameters
+    ----------
+    owner: Path
+        The path to the owner of the *cache* file.
+    uid: str
+        Unique identifier for the derivation, e.g., function name.
+    ext: str
+        Extension of the *cache* file, e.g., ``"pickle"``.
+    dirname: str, optional
+        Name of the intermediate directory.
+    kwargs: dict, optional
+        Arbitrary keyword arguments, hashed to generate a unique identifier. Kwargs need to be JSON-serializable.
+
+    Returns
+    -------
+    Path
+        The path to the **cache** file.
+    """
+    key_data = json.dumps({key: value for key, value in kwargs.items()}) if isinstance(kwargs, dict) else ''
+    key = hashlib.blake2b(key_data.encode('utf-8'), digest_size=16).hexdigest()
+    return get_derived_file_path(owner, f".{uid}.{key}{ext}", dirname=dirname)
+
+
 def get_metadata_path(owner, suffix='.meta.yaml'):
     """
     Returns the path to the metadata file for a given owner.
@@ -97,14 +127,14 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def asynced(func: Callable[P, R]) -> Callable[..., Coroutine[Any, Any, R]]:
+def async_threaded(func: Callable[P, R]) -> Callable[..., Coroutine[Any, Any, R]]:
     """
     Offloads ``func`` to a thread, returning an ``awaitable``.
 
     When wrapped function is being called, you may pass in a ``ThreadPoolExecutor`` as a keyword argument, ``executor``.
     In this case, the wrapped function will borrow a thread from the pool, rather than spawning a fresh one.
 
-    Apply this decorator BEFORE ``stashed``.
+    Apply this decorator BEFORE ``cached_as_numpy_archive``.
     """
 
     @wraps(func)
@@ -120,50 +150,143 @@ U = ParamSpec("U")
 V = TypeVar("V")
 
 
-def stashed(func: Callable[U, V]) -> Callable[U, V]:
+def cached_via_pickle(func: Callable[U, V]) -> Callable[U, V]:
     """
-    Caches the outputs of the wrapped function to a `pickle` file.
+    Caches the output of the wrapped function to a `.pickle` file.
 
     Wrapped function MUST have ``filepath: Path`` as its first and only positional argument. The wrapper will save the
-    `pickle` file to ``filepath.parent``.
+    `pickle` file to ``filepath.parent``. Keyword arguments passed to the function are hashed to generate a ``key``,
+    using which the decorator then names the `pickle` file as ``<func_name>.<key>.pickle``.
 
-    Keyword arguments passed to the function are hashed to generate a ``key``, using which the decorator then names the
-    `pickle` file as ``<func_name>.<key>.pickle``.
-
-    Apply this decorator AFTER ``asynced``.
+    Apply this decorator AFTER ``async_threaded``.
     """
 
     @wraps(func)
     def wrapper(filepath: Path, **kwargs: Any) -> V:
-        key_data = json.dumps({key: json_or_none(value) for key, value in kwargs.items()})
-        key = hashlib.blake2b(key_data.encode('utf-8'), digest_size=16).hexdigest()
-        cache_path = get_derived_file_path(filepath, f".{func.__name__}.{key}.pickle", dirname=None)
+        cache_path = get_cache_file_path(filepath, uid=func.__name__, ext='.pickle', kwargs=kwargs)
 
         if cache_path.exists():
-            with cache_path.open("rb") as file:
+            with open(cache_path, 'rb') as file:
                 return pickle.load(file)
 
         result = func(filepath, **kwargs)
 
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=filepath.parent,
-            prefix=f".{func.__name__}.{key}.",
-            suffix=".tmp",
-            delete=False,
-        ) as file:
-            temp_path = Path(file.name)
-            pickle.dump(result, file, protocol=pickle.HIGHEST_PROTOCOL)
-
-        os.replace(temp_path, cache_path)
+        with open(cache_path, 'wb') as file:
+            pickle.dump(result, file)
 
         return result
 
     return wrapper
 
 
-def json_or_none(obj: Any) -> str | None:
-    try:
-        return json.dumps(obj)
-    except TypeError:
-        return None
+def cached_via_numpy(func: Callable[U, V]) -> Callable[U, V]:
+    """
+    Caches the outputs of the wrapped function to a `.npz` file.
+
+    Wrapped function MUST have ``filepath: Path`` as its first and only positional argument. The wrapper will save the
+    `npz` file to ``filepath.parent``. Keyword arguments passed to the function are hashed to generate a ``key``, using
+    which the decorator then names the `npz` file as ``<func_name>.<key>.npz``.
+
+    Apply this decorator AFTER ``async_threaded``.
+    """
+
+    @wraps(func)
+    def wrapper(filepath: Path, **kwargs: Any) -> V:
+        cache_path = get_cache_file_path(filepath, uid=func.__name__, ext='.npz', kwargs=kwargs)
+
+        if cache_path.exists():
+            archive = np.load(cache_path)
+            if len(archive.files) == 1:
+                file, = archive.files
+                return archive[file]
+            return tuple(archive[f] for f in archive.files)
+
+        result = func(filepath, **kwargs)
+
+        result = result if isinstance(result, tuple) else [result]
+        np.savez(cache_path, *result, allow_pickle=False)
+
+        return result
+
+    return wrapper
+
+
+def colorize(image, colormap):
+    """
+    Colorizes an image using a colormap.
+
+    Parameters
+    ----------
+    image: np.ndarray
+        Input image shaped as ``(H, W)``.
+    colormap: str
+        Name of a ``matplotlib`` colormap.
+
+    Returns
+    -------
+    np.ndarray
+        Colorized image shaped as ``(H, W, 3)``, with values in [0, 1].
+    """
+    cmap = colormaps[colormap]
+
+    discrete = np.issubdtype(image.dtype, np.integer)
+
+    if discrete:
+        values = np.unique(image)
+        colored_values = np.arange(len(values), dtype=np.float32)
+        color_image = np.zeros(image.shape, dtype=np.float32)
+        for value, colored_value in zip(values, colored_values):
+            color_image[image == value] = colored_value
+        v_min = 0.0
+        v_max = float(len(values) - 1)
+        normalized = color_image / max(v_max, 1.0)
+    else:
+        v_min = float(image.min())
+        v_max = float(image.max())
+        normalized = (image - v_min) / (v_max - v_min + 1e-8)
+
+    rgb = cmap(normalized)[..., :3].astype(np.float32)
+
+    colorscale = [
+        (float(sample), f"rgb({round(r * 255)}, {round(g * 255)}, {round(b * 255)})")
+        for sample in np.linspace(0.0, 1.0, 256)
+        for r, g, b, a in [cmap(sample)]
+    ]
+
+    colorbar = {
+        "colorscale": colorscale,
+        "cmin": v_min,
+        "cmax": v_max,
+    }
+
+    if discrete:
+        colorbar.update({
+            "tickmode": "array",
+            "tickvals": colored_values.tolist(),
+            "ticktext": [str(value) for value in values.tolist()],
+            "labels": values.tolist(),
+        })
+
+    return rgb, colorbar
+
+
+def base64_png(image: np.ndarray):
+    """
+    Encodes an image represented as a numpy array into a base64-encoded PNG image.
+
+    Parameters
+    ----------
+    image: np.ndarray
+        Shaped (H, W, 3) with values in [0, 1].
+
+    Returns
+    -------
+    str
+        Base64-encoded PNG image.
+    """
+    image = (image * 255).astype(np.uint8)
+    image = Image.fromarray(image)
+    buffer = BytesIO()
+    image.save(buffer, format='PNG')
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"

@@ -6,7 +6,7 @@ import {type ImageResponse, type Selection} from '~/types/imzML'
 const props = defineProps<{
   loading: boolean
   image: ImageResponse | null
-  display: { log1p: boolean }
+  display: { }
   selections: Selection[]
 }>()
 
@@ -18,15 +18,6 @@ const colorMode = useColorMode()
 
 const container = ref<HTMLElement | null>(null)
 const plot = ref<Plotly.PlotlyHTMLElement | null>(null)
-
-const transformedValues = computed(() => {
-  if (!props.image) return null
-
-  if (props.display.log1p)
-    return props.image.values.map(row => row.map(value => Math.log10(value + 1)))
-
-  return props.image.values
-})
 
 const annotations = computed(() => {
   return props.selections.map(selection => ({
@@ -44,65 +35,47 @@ const annotations = computed(() => {
   }))
 })
 
-const trace = computed(() => {
-  if (!props.image) return []
+const imageTrace = computed(() => {
+  if (!props.image) return null
 
-  switch (props.image.mode) {
-    case 'tic':
-      return {
-        type: 'heatmap',
-        x: props.image.coords.x,
-        y: props.image.coords.y,
-        z: transformedValues.value,
-        hovertemplate: '(x:%{x}, y:%{y})<br>TIC=<b>%{z}</b>',
-        colorscale: 'Viridis',
-        showlegend: false,
-        name: '',
-      }
+  return {
+    type: 'image',
+    x0: props.image.origin[0],
+    y0: props.image.origin[1],
+    dx: props.image.delta[0],
+    dy: props.image.delta[1],
+    source: props.image.image,
+    hovertemplate: '(x:%{x}, y:%{y})',
+    showlegend: false,
+    name: '',
+  }
+})
 
-    case 'ion':
-      return {
-        type: 'heatmap',
-        x: props.image.coords.x,
-        y: props.image.coords.y,
-        z: transformedValues.value,
-        hovertemplate: '(x:%{x}, y:%{y})<br>Intensity=<b>%{z}</b>',
-        colorscale: 'Viridis',
-        showlegend: false,
-        name: '',
-      }
+const colorbarTrace = computed(() => {
+  if (!props.image?.colorbar) return null
 
-    case 'pca':
-      return {
-        type: 'image',
-        x0: props.image.coords.x[0],
-        y0: props.image.coords.y[0],
-        dx: 1,
-        dy: 1,
-        z: props.image.values.map((row: any) =>
-          row.map((pixel: any) =>
-            pixel.map((channel: number) => Math.round(channel * 255))
-          )
-        ),
-        hovertemplate: '(x:%{x}, y:%{y})',
-        showlegend: false,
-        name: '',
-      }
-
-    case 'kmn':
-      return {
-        type: 'heatmap',
-        x: props.image.coords.x,
-        y: props.image.coords.y,
-        z: props.image.values,
-        hovertemplate: '(x:%{x}, y:%{y})<br>Cluster=<b>%{z}</b>',
-        colorscale: 'Jet',
-        showlegend: false,
-        name: '',
-      }
-
-    default:
-      return []
+  // Image traces don't support colorbars. We'll need a dummy trace to add that.
+  return {
+    type: 'heatmap',
+    z: [[props.image.colorbar.cmin, props.image.colorbar.cmax]],
+    x: [0, 1],
+    y: [0],
+    zmin: props.image.colorbar.cmin,
+    zmax: props.image.colorbar.cmax,
+    colorscale: props.image.colorbar.colorscale,
+    showscale: true,
+    hoverinfo: 'skip',
+    opacity: 0,
+    showlegend: false,
+    colorbar: {
+      title: '',
+      tickmode: props.image.colorbar.tickmode,
+      tickvals: props.image.colorbar.tickvals,
+      ticktext: props.image.colorbar.ticktext,
+      ticks: 'outside',
+      thickness: 14,
+      len: 0.85,
+    },
   }
 })
 
@@ -120,7 +93,7 @@ const layout = computed(() => {
     autosize: true,
     dragmode: 'zoom',
     uirevision: true,
-    margin: { t: 36, r: 0, b: 0, l: 40 },
+    margin: { t: 36, r: 90, b: 0, l: 45 },
     paper_bgcolor: theme.value.paper,
     plot_bgcolor: theme.value.plot,
     font: { color: theme.value.text },
@@ -160,8 +133,8 @@ const config = computed(() => {
 async function renderPlot() {
   if (!container.value || props.loading || !props.image) return
 
-  const traces = [
-    // We have to have an invisible plot that actually supports selection tools for them to show up.
+  const traces: any[] = [
+    // We'll need another dummy trace for the selection tools to show up!
     {
       type: 'scatter',
       x: [(props.image.width || 0) / 2],
@@ -170,9 +143,15 @@ async function renderPlot() {
       hoverinfo: 'skip',
       opacity: 0
     },
-    // We then layer the actual plot on top of it.
-    trace.value,
   ]
+
+  if (imageTrace.value) {
+    traces.push(imageTrace.value)
+  }
+
+  if (colorbarTrace.value) {
+    traces.push(colorbarTrace.value)
+  }
 
   plot.value = await Plotly.react(container.value, traces, layout.value, config.value)
 

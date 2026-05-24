@@ -2,6 +2,8 @@ from functools import cached_property
 
 import h5py
 import numpy as np
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 
 from .schema import A
 
@@ -28,6 +30,10 @@ class IMZ5:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+        
+    @property
+    def num_pixels(self):
+        return len(self.offsets) - 1
 
     @property
     def coordinates(self) -> h5py.Dataset:
@@ -36,6 +42,42 @@ class IMZ5:
         order.
         """
         return self.file[A.COORDINATES]
+    
+    def infer_grid(self):
+        """
+        Infers the coordinate system from the ``coordinates``. This method assumes that the coordinates are in a regular
+        grid with uniform spacing in all dimensions.
+
+        Returns
+        -------
+        origin: tuple[float, float, float]
+            The origin of the grid, as `(x0, y0, z0)`.
+        delta: tuple[float, float, float]
+            The spacing between grid points, as `(dx, dy, dz)`.
+        """
+        coords = self.coordinates[:]
+
+        x = coords[:, 0]
+        y = coords[:, 1]
+        z = coords[:, 2]
+
+        x0 = x.min().item()
+        y0 = y.min().item()
+        z0 = z.min().item()
+
+        dxs = np.diff(x)
+        dys = np.diff(y)
+        dzs = np.diff(z)
+
+        dxs = np.abs(dxs[dxs != 0])
+        dys = np.abs(dys[dys != 0])
+        dzs = np.abs(dzs[dzs != 0])
+
+        dx = dxs.min().item() if dxs.size else None
+        dy = dys.min().item() if dys.size else None
+        dz = dzs.min().item() if dzs.size else None
+
+        return (x0, y0, z0), (dx, dy, dz)
 
     @property
     def offsets(self) -> h5py.Dataset:
@@ -242,3 +284,35 @@ class IMZ5:
             unique_vals /= tic
 
         return unique_locs, unique_vals
+
+    def tic_image(self):
+        tic = np.bincount(self.ids[:], weights=self.values[:], minlength=self.num_pixels)
+        return self.scatter(tic)
+
+    def ion_image(self, target_ion, tolerance=1):
+        point_indices = self.mask_ion(target_ion, tolerance)
+        if not len(point_indices):
+            return np.zeros(self.shape)
+        # Faster (albeit less memory efficient) to pull the entire array into memory then select by index.
+        pixel_ids = self.ids[:][point_indices]
+        point_vals = self.values[:][point_indices]
+        per_pixel = np.bincount(pixel_ids, weights=point_vals, minlength=self.num_pixels)
+        return self.scatter(per_pixel)
+
+    def pca_image(self, n_components, bin_width=1, normalization='tic'):
+        matrix, bins = self.binned(bin_width, normalization)
+        pca = PCA(n_components=max(n_components, 3))
+        scores = pca.fit_transform(matrix)
+        lo = scores.min(axis=0)
+        hi = scores.max(axis=0)
+        hi[hi == lo] = 1
+        scores = (scores - lo) / (hi - lo)
+        return self.scatter(scores)
+
+    def kmeans_image(self, n_components, n_clusters, bin_width=1, normalization='tic'):
+        matrix, bins = self.binned(bin_width, normalization)
+        pca = PCA(n_components=max(n_components, 3))
+        scores = pca.fit_transform(matrix)
+        kmeans = KMeans(n_clusters=n_clusters, n_init='auto')
+        labels = kmeans.fit_predict(scores)
+        return self.scatter(labels).astype(np.int32)
