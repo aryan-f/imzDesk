@@ -25,6 +25,8 @@ def create_app(root, num_workers):
         # Built user interface
         ui_dir = Path(__file__).parent / 'ui'
         app.mount('/_nuxt', StaticFiles(directory=ui_dir / '_nuxt'), name='nuxt')
+        app.mount('/_fonts', StaticFiles(directory=ui_dir / '_fonts'), name='fonts')
+        app.mount('/images', StaticFiles(directory=ui_dir / 'images'), name='images')
 
         # Fallback for SPA routing
         @app.get('/{full_path:path}')
