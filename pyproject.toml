@@ -1,0 +1,22 @@
+[project]
+name = "imzdesk"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "h5py>=3.16.0",
+    "lxml>=6.1.1",
+    "openslide-bin>=4.0.1.1",
+    "openslide-python>=1.4.6",
+    "pyimzml>=1.5.5",
+    "torch~=2.12.1",
+    "torchvision~=0.27.1",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu132" }]
+torchvision = [{ index = "pytorch-cu132" }]
