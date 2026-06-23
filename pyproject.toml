@@ -1,6 +1,6 @@
 [project]
 name = "imzdesk"
-version = "0.1.0"
+version = "0.0.1"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.138.0",
@@ -17,10 +17,14 @@ dependencies = [
     "pyyaml>=6.0.3",
     "simpleitk>=2.5.5",
     "starlette>=1.3.1",
-    "torch~=2.12.1",
-    "torchvision~=0.27.1",
     "tqdm>=4.67.1",
     "uvicorn[standard]>=0.49.0",
+]
+
+[project.optional-dependencies]
+extras = [
+    "torch~=2.12.1",
+    "torchvision~=0.27.1",
 ]
 
 [[tool.uv.index]]
@@ -31,12 +35,6 @@ explicit = true
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu132" }]
 torchvision = [{ index = "pytorch-cu132" }]
-
-[project.optional-dependencies]
-extras = [
-    "jupyter>=1.1.1",
-    "pandas>=3.0.3",
-]
 
 [project.scripts]
 imzdesk = "imzdesk.server.entry:run_server"
