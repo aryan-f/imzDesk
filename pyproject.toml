@@ -11,6 +11,7 @@ dependencies = [
     "numpy>=2.4.6",
     "openslide-bin>=4.0.1.1",
     "openslide-python>=1.4.6",
+    "psutil>=7.2.2",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "pyimzml>=1.5.5",

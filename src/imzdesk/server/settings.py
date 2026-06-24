@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from pydantic import Field, field_validator
@@ -6,6 +7,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     workspace: Path
+    log_level: int | str = logging.INFO
     max_workers: int = Field(default=4, ge=1)
 
     @field_validator('workspace')
