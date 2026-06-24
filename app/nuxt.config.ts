@@ -1,15 +1,24 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  ssr: false,
-
   modules: [
     '@nuxt/eslint',
-    '@nuxt/ui'
+    '@nuxt/ui',
   ],
 
+  ssr: false,
+
   devtools: {
-    enabled: true
+    enabled: true,
   },
+
+  css: ['~/assets/css/main.css'],
+
+  colorMode: {
+    preference: 'dark',
+    fallback: 'dark',
+  },
+
+  compatibilityDate: '2025-01-15',
 
   nitro: {
     devProxy: {
@@ -20,16 +29,12 @@ export default defineNuxtConfig({
     },
   },
 
-  css: ['~/assets/css/main.css'],
-
-  compatibilityDate: '2025-01-15',
-
   eslint: {
     config: {
       stylistic: {
         commaDangle: 'always-multiline',
-        braceStyle: 'allman'
-      }
-    }
-  }
+        braceStyle: '1tbs',
+      },
+    },
+  },
 })
