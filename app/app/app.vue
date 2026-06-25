@@ -6,6 +6,7 @@ useSeoMeta({
 
 <template>
   <UApp>
+    <NuxtLoadingIndicator />
     <NuxtLayout>
       <NuxtPage />
     </NuxtLayout>
