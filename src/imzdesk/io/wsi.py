@@ -2,11 +2,13 @@ from pathlib import Path
 
 import openslide
 
-from .base import I
+from .image import BaseImageIO
 from .meta import Dimensions
 
 
-class WSI(I):
+class WSI(BaseImageIO):
+    # See https://openslide.org/formats/.
+    extensions = ('.svs', '.avs', '.dcm', '.vms', '.vmu', '.ndpi', '.tif', '.scn', '.mrxs', '.tiff', '.svslide', '.bif')
 
     def __init__(self, filepath, meta_path=None):
         """

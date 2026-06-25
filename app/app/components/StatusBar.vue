@@ -67,7 +67,7 @@ onUnmounted(() => {
       <span class="font-data text-xs">{{ filledRAM.toFixed(1) }}/{{ totalRAM.toFixed(1) }}G</span>
     </div>
     <UButton
-      color="neutral" variant="ghost" size="xs" icon="i-lucide-terminal"
+      color="neutral" variant="ghost" size="xs" icon="mdi-text"
       :trailing-icon="props.logsOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'"
       @click="emit('update:logsOpen', !props.logsOpen)"
     >

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const menuItems = [
-  { label: 'Images', to: '/' },
+  { label: 'Workspace', to: '/workspace' },
   { label: 'Datasets', to: '/datasets' },
 ]
 
@@ -9,10 +9,10 @@ const { data: infrastructure } = await useFetch('/api/system/infra')
 
 <template>
   <header class="flex h-12 shrink-0 items-center gap-4 border-b border-default bg-muted px-4">
-    <div class="flex items-center gap-2">
+    <NuxtLink to="/" class="flex items-center gap-2">
       <UIcon name="simple-icons-spectrum" class="text-secondary" />
       <span class="font-semibold tracking-tight">imz<span class="text-secondary">Desk</span></span>
-    </div>
+    </NuxtLink>
     <UNavigationMenu :items="menuItems" color="neutral" class="ms-1" />
     <div class="ms-auto flex items-center gap-3">
       <code class="rounded-md border border-default bg-default px-2 py-0.5 font-data text-sm text-muted">

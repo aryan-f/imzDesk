@@ -1,10 +1,10 @@
-import abc
 from pathlib import Path
 
+from .file import BaseFileIO
 from .meta import Meta
 
 
-class I(abc.ABC):
+class BaseImageIO(BaseFileIO):
 
     def __init__(self, filepath, meta_path=None):
         """
