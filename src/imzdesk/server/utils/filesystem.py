@@ -3,9 +3,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from imzdesk.io import CLASSES
-from imzdesk.server.schema.filesystem import (
-    FileType,
-)
+from imzdesk.server.schema import filesystem
 
 
 def resolve_path(workspace: Path, relpath: str, is_dir: bool = False, exists: bool = True):
@@ -52,7 +50,7 @@ def resolve_path(workspace: Path, relpath: str, is_dir: bool = False, exists: bo
     return resolved
 
 
-def resolve_filetype(abspath: Path) -> FileType | None:
+def resolve_filetype(abspath: Path) -> filesystem.FileType | None:
     """
     Resolve the file type of ``abspath`` and return the corresponding IO class name.
 

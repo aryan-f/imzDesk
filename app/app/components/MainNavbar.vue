@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import type {SystemInfrastructure} from '~/types/system'
+
 const menuItems = [
   { label: 'Workspace', to: '/workspace' },
   { label: 'Datasets', to: '/datasets' },
 ]
 
-const { data: infrastructure } = await useFetch('/api/system/infra')
+const { data: infrastructure } = await useFetch<SystemInfrastructure>('/api/system/infra', {
+  default: () => ({ workspace: '' }),
+})
 </script>
 
 <template>

@@ -1,24 +1,28 @@
 <script setup lang="ts">
 import prettyBytes from 'pretty-bytes'
-import {type DirectoryEntry} from '~/types/entry'
+import type {FilesystemEntry} from '~/types/filesystem'
 
 const props = defineProps<{
-  entry: DirectoryEntry,
-  selected: boolean,
-  viewing: boolean,
+  entry: FilesystemEntry
+  active?: boolean
 }>()
 
-const router = useRouter()
+const emit = defineEmits<{
+  select: [entry: FilesystemEntry]
+}>()
 
-const to = computed(() => {
-  if (props.entry.directory) {
-    return `/workspace/${props.entry.path}`
-  }
-})
+const { openDirectory, openFile } = useWorkspace()
 
 const icon = computed(() => {
-  if (props.entry.directory) return 'mdi-folder'
-  if (props.entry.type) return 'iconamoon-file-duotone'
+  if (props.entry.directory) {
+    return 'mdi-folder'
+  }
+  if (props.entry.type) {
+    switch (props.entry.type) {
+      case 'MSI': return 'streamline-image-blur'
+      case 'WSI': return 'healthicons-cell-nuclei-outline-24px'
+    }
+  }
   return 'iconamoon-file'
 })
 
@@ -34,8 +38,8 @@ const formattedSize = computed(() => {
 })
 
 const tooltip = computed(() => {
-  if (!props.entry.size) return props.entry.label
-  return `${props.entry.label} (${formattedSize.value})`
+  if (!props.entry.size) return props.entry.name
+  return `${props.entry.name} (${formattedSize.value})`
 })
 
 const badgeColor = computed(() => {
@@ -47,22 +51,21 @@ const badgeColor = computed(() => {
 })
 
 function clicked() {
-  // Anything?
+  emit('select', props.entry)
 }
 
 function doubleClicked() {
-  if (to.value) {
-    router.push({ path: to.value })
-  }
-  // TODO: Open files via `query`
+  if (props.entry.directory) openDirectory(props.entry.path)
+  else if (props.entry.type) openFile(props.entry.type, props.entry.name)
 }
 </script>
 
 <template>
   <UButton
-    :to="to"
     class="w-full min-w-0 cursor-pointer py-1"
     variant="ghost"
+    :active="active"
+    active-variant="outline"
     color="neutral"
     @click.prevent="clicked"
     @dblclick="doubleClicked"
@@ -73,16 +76,13 @@ function doubleClicked() {
     <template #default>
       <UTooltip :text="tooltip" :delay-duration="250">
         <div class="min-w-0 truncate text-neutral select-none">
-          {{ entry.label }}
+          {{ entry.name }}
         </div>
       </UTooltip>
     </template>
     <template #trailing>
       <div class="ml-auto shrink-0 flex items-center gap-1">
-        <UBadge v-if="props.entry.type" :label="props.entry.type" :color="badgeColor" variant="soft" class="px-1 py-px" />
-        <div v-if="viewing">
-          <UIcon name="iconoir-eye-solid" class="text-success" />
-        </div>
+        <UBadge v-if="entry.type" :label="entry.type" :color="badgeColor" variant="soft" class="px-1 py-px" />
       </div>
     </template>
   </UButton>

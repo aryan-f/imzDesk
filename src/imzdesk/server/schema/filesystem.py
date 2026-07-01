@@ -8,10 +8,10 @@ class FileType(str, Enum):
     WSI = 'WSI'
 
 
-class DirectoryEntry(BaseModel):
+class FilesystemEntry(BaseModel):
     directory: bool
     parent: str
-    label: str
+    name: str
     path: str
     size: int | None = None
     type: FileType | None = None
