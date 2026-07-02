@@ -7,14 +7,14 @@ import numpy as np
 from lxml import etree
 from pyimzml.ImzMLParser import ImzMLParser, PortableSpectrumReader
 
-from .base import Image
+from .base import ImageBase
 from ..core import metadata
 
 # Suppress the specific pyimzml ontology naming warning
 warnings.filterwarnings('ignore', message='Accession .* found with incorrect name.*', category=UserWarning)
 
 
-class MSI(Image):
+class MSI(ImageBase):
     metadata_class = metadata.MSIMetadata
     extensions = ('.imzML',)
 

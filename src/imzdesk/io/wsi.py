@@ -1,12 +1,14 @@
-from pathlib import Path
+import functools
 
 import openslide
+import openslide.deepzoom
+from PIL import Image
 
-from .base import Image
+from .base import ImageBase
 from ..core import metadata
 
 
-class WSI(Image):
+class WSI(ImageBase):
     metadata_class = metadata.WSIMetadata
     extensions = ('.svs', '.avs', '.dcm', '.vms', '.vmu', '.ndpi', '.tif', '.scn', '.mrxs', '.tiff', '.svslide', '.bif')  # See https://openslide.org/formats/.
 
@@ -33,7 +35,9 @@ class WSI(Image):
             mpp=metadata.Dimensions(
                 x=float(self.slide.properties[openslide.PROPERTY_NAME_MPP_X]),
                 y=float(self.slide.properties[openslide.PROPERTY_NAME_MPP_Y]),
-            )
+            ),
+            objective_power=float(self.slide.properties[openslide.PROPERTY_NAME_OBJECTIVE_POWER]),
+            vendor=self.slide.properties[openslide.PROPERTY_NAME_VENDOR],
         )
 
     def __enter__(self):
@@ -41,3 +45,15 @@ class WSI(Image):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.write_metadata_to_disk()
+
+    @functools.cached_property
+    def deepzoom(self):
+        return openslide.deepzoom.DeepZoomGenerator(
+            self.slide,
+            tile_size=self.metadata.tile_size,
+            overlap=self.metadata.tile_overlap,
+            limit_bounds=False,  # keeps the pyramid anchored to full level 0 dims, so world coordinates never shift.
+        )
+
+    def get_tile(self, level: int, row: int, column: int) -> Image.Image:
+        return self.deepzoom.get_tile(level, (column, row))

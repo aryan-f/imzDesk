@@ -18,6 +18,15 @@ export default defineNuxtConfig({
     fallback: 'dark',
   },
 
+  vite: {
+    optimizeDeps: {
+      include: [
+        'openseadragon', // CJS
+        'pretty-bytes',
+      ]
+    }
+  },
+
   compatibilityDate: '2025-01-15',
 
   nitro: {

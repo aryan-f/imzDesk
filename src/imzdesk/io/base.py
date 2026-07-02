@@ -5,7 +5,7 @@ import typing
 from imzdesk.core.metadata import Metadata
 
 
-class Image(abc.ABC):
+class ImageBase(abc.ABC):
     metadata_class: typing.ClassVar[type[Metadata]]
     extensions: typing.ClassVar[tuple[str, ...]]
 
