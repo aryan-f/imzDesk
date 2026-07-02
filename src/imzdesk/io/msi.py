@@ -7,17 +7,18 @@ import numpy as np
 from lxml import etree
 from pyimzml.ImzMLParser import ImzMLParser, PortableSpectrumReader
 
-from .image import BaseImageIO
-from .meta import Dimensions
+from .base import Image
+from ..core import metadata
 
 # Suppress the specific pyimzml ontology naming warning
 warnings.filterwarnings('ignore', message='Accession .* found with incorrect name.*', category=UserWarning)
 
 
-class MSI(BaseImageIO):
+class MSI(Image):
+    metadata_class = metadata.MSIMetadata
     extensions = ('.imzML',)
 
-    def __init__(self, filepath, ibd_path=None, meta_path=None, cache_path=None, cache_portable=True):
+    def __init__(self, filepath, ibd_path=None, cache_portable=True):
         """
         Mass Spectrometry Image.
 
@@ -32,48 +33,47 @@ class MSI(BaseImageIO):
             The path to the `.imzML` file.
         ibd_path: Path or str
             The path to the `.ibd` file. If not specified, it will be inferred from the ``imzml_path``.
-        meta_path: Path or str
-            The path to the meta file. If not specified, it will be inferred from the ``imzml_path``.
-        cache_path: Path or str
-            The path to the HDF5 portable reader cache. If not specified, it will be inferred from the ``imzml_path``.
         cache_portable: bool
             Whether to cache the minimal set of data required for reading, avoiding XML parsing on the next access.
         """
-        super().__init__(filepath, meta_path)
+        super().__init__(filepath)
 
         self.ibd_path = Path(ibd_path) if ibd_path is not None else self.filepath.with_suffix('.ibd')
-        self.cached_path = Path(cache_path) if cache_path is not None else self.derived_path(self.filepath, '.h5')
 
-        if self.cached_path.exists():
+        self.cache_path = self.derived_path(self.filepath, '.h5')
+        if self.cache_path.exists():
             self.reader = self.from_cache()
         else:
             parser = ImzMLParser(self.filepath, ibd_path, cache_portable)
             self.reader = parser.portable_spectrum_reader()
             if cache_portable:
-                self.to_cache()
+                self.cache()
 
-        self.initialize_meta_if_needed(self.filepath)
+        self.ibd_file = None  # Lazy
 
-        self.ibd_file = None
+        self.resolve_metadata()
 
-    def initialize_meta_if_needed(self, imzml_path: Path):
+    def initialize_metadata(self):
         # Even though ``ImzMLParser.imzmldict`` contains these properties, the library discards the units which could
         # cause serious problems. We'll have to parse it again to extract the relevant accessions.
-        if self.meta.width is None or self.meta.height is None:
-            # Not going to check ``mpp``, too. That's likely missing as well.
-            (width, none), (height, none), (x, xu), (y, yu) = get_cvparams_by_accession(
-                imzml_path,
-                'IMS:1000042',
-                'IMS:1000043',
-                'IMS:1000046',
-                'IMS:1000047'
-            )
-            self.meta.width = int(width)
-            self.meta.height = int(height)
-            self.meta.mpp = Dimensions(x=as_microns(x, xu), y=as_microns(y, yu))
+        (width, none), (height, none), (x, xu), (y, yu) = get_cvparams_by_accession(
+            self.filepath,
+            'IMS:1000042',
+            'IMS:1000043',
+            'IMS:1000046',
+            'IMS:1000047'
+        )
+        return metadata.MSIMetadata(
+            width=int(width),
+            height=int(height),
+            mpp=metadata.Dimensions(
+                x=as_microns(x, xu),
+                y=as_microns(y, yu),
+            ),
+        )
 
     def from_cache(self):
-        with h5py.File(self.cached_path, 'r') as f:
+        with h5py.File(self.cache_path, 'r') as f:
             return PortableSpectrumReader(
                 coordinates=f['coordinates'][:],
                 mzPrecision=f.attrs['mzPrecision'],
@@ -84,9 +84,9 @@ class MSI(BaseImageIO):
                 intensityLengths=f['intensityLengths'][:],
             )
 
-    def to_cache(self):
-        os.makedirs(self.cached_path.parent, exist_ok=True)
-        with h5py.File(self.cached_path, 'w') as f:
+    def cache(self):
+        os.makedirs(self.cache_path.parent, exist_ok=True)
+        with h5py.File(self.cache_path, 'w') as f:
             f.create_dataset('coordinates', data=np.asarray(self.reader.coordinates))
             f.attrs['mzPrecision'] = self.reader.mzPrecision
             f.create_dataset('mzOffsets', data=np.asarray(self.reader.mzOffsets))
@@ -100,7 +100,7 @@ class MSI(BaseImageIO):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.meta.to_file(self.meta_path)
+        self.write_metadata_to_disk()
         self.ibd_file.close()
 
     def __len__(self):

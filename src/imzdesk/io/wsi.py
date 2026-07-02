@@ -2,15 +2,15 @@ from pathlib import Path
 
 import openslide
 
-from .image import BaseImageIO
-from .meta import Dimensions
+from .base import Image
+from ..core import metadata
 
 
-class WSI(BaseImageIO):
-    # See https://openslide.org/formats/.
-    extensions = ('.svs', '.avs', '.dcm', '.vms', '.vmu', '.ndpi', '.tif', '.scn', '.mrxs', '.tiff', '.svslide', '.bif')
+class WSI(Image):
+    metadata_class = metadata.WSIMetadata
+    extensions = ('.svs', '.avs', '.dcm', '.vms', '.vmu', '.ndpi', '.tif', '.scn', '.mrxs', '.tiff', '.svslide', '.bif')  # See https://openslide.org/formats/.
 
-    def __init__(self, filepath, meta_path=None):
+    def __init__(self, filepath):
         """
         Whole Slide Image.
 
@@ -20,26 +20,24 @@ class WSI(BaseImageIO):
         ----------
         filepath: Path or str
             The path to a pathology image file supported by **OpenSlide**.
-        meta_path: Path or str
-            The path to the meta file. If not provided, it will be inferred from the file path.
         """
-        super().__init__(filepath, meta_path)
-
+        super().__init__(filepath)
         self.slide = openslide.OpenSlide(self.filepath)
+        self.resolve_metadata()
 
-        self.initialize_meta_if_needed()
-
-    def initialize_meta_if_needed(self):
-        if self.meta.width is None or self.meta.height is None:
-            self.meta.width, self.meta.height = self.slide.dimensions
-        if self.meta.mpp is None:
-            self.meta.mpp = Dimensions(
+    def initialize_metadata(self):
+        width, height = self.slide.dimensions
+        return metadata.WSIMetadata(
+            width=width,
+            height=height,
+            mpp=metadata.Dimensions(
                 x=float(self.slide.properties[openslide.PROPERTY_NAME_MPP_X]),
                 y=float(self.slide.properties[openslide.PROPERTY_NAME_MPP_Y]),
             )
+        )
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.meta.to_file(self.meta_path)
+        self.write_metadata_to_disk()
