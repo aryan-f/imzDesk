@@ -85,7 +85,7 @@ const filteredEntries = computed(() => {
         :ui="{ separatorIcon: 'mx-[-0.5em]' }"
         separator-icon="heroicons-slash"
       />
-      <UIcon v-if="loading" name="i-lucide-loader-circle" class="ms-auto size-4 animate-spin text-warning" />
+      <UIcon v-if="loading" name="i-lucide-loader-circle" class="ms-auto size-4 animate-spin text-primary" />
     </div>
     <div class="flex flex-col justify-center h-12 px-3">
       <UInput
