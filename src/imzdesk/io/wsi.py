@@ -8,8 +8,16 @@ from .base import ImageBase
 from ..core import metadata
 
 
+class WSIMetadata(metadata.Metadata):
+    vendor: str | None = None
+    crop: metadata.BoundingBox | None = None
+    tile_size: int = metadata.Field(default=254, ge=1)
+    tile_overlap: int = metadata.Field(default=1, ge=0)
+    objective_power: float | None = metadata.Field(default=None, gt=0)
+
+
 class WSI(ImageBase):
-    metadata_class = metadata.WSIMetadata
+    metadata_class = WSIMetadata
     extensions = ('.svs', '.avs', '.dcm', '.vms', '.vmu', '.ndpi', '.tif', '.scn', '.mrxs', '.tiff', '.svslide', '.bif')  # See https://openslide.org/formats/.
 
     def __init__(self, filepath):
@@ -29,7 +37,7 @@ class WSI(ImageBase):
 
     def initialize_metadata(self):
         width, height = self.slide.dimensions
-        return metadata.WSIMetadata(
+        return WSIMetadata(
             width=width,
             height=height,
             mpp=metadata.Dimensions(

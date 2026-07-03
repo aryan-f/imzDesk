@@ -1,5 +1,6 @@
 import os
 import warnings
+from functools import cached_property
 from pathlib import Path
 
 import h5py
@@ -14,8 +15,12 @@ from ..core import metadata
 warnings.filterwarnings('ignore', message='Accession .* found with incorrect name.*', category=UserWarning)
 
 
+class MSIMetadata(metadata.Metadata):
+    pass
+
+
 class MSI(ImageBase):
-    metadata_class = metadata.MSIMetadata
+    metadata_class = MSIMetadata
     extensions = ('.imzML',)
 
     def __init__(self, filepath, ibd_path=None, cache_portable=True):
@@ -44,7 +49,7 @@ class MSI(ImageBase):
         if self.cache_path.exists():
             self.reader = self.from_cache()
         else:
-            parser = ImzMLParser(self.filepath, ibd_path, cache_portable)
+            parser = ImzMLParser(self.filepath, ibd_file=ibd_path)
             self.reader = parser.portable_spectrum_reader()
             if cache_portable:
                 self.cache()
@@ -63,7 +68,7 @@ class MSI(ImageBase):
             'IMS:1000046',
             'IMS:1000047'
         )
-        return metadata.MSIMetadata(
+        return MSIMetadata(
             width=int(width),
             height=int(height),
             mpp=metadata.Dimensions(
@@ -105,6 +110,10 @@ class MSI(ImageBase):
 
     def __len__(self):
         return len(self.reader.coordinates)
+
+    @cached_property
+    def coordinates(self):
+        return np.asarray(self.reader.coordinates)
 
     def __getitem__(self, index):
         """
@@ -153,9 +162,8 @@ class MSI(ImageBase):
         vals: np.ndarray
             Intensities.
         """
-        coords = np.asarray(self.reader.coordinates)
+        matches, = np.where((self.coordinates[:, 0] == x) & (self.coordinates[:, 1] == y))
 
-        matches, = np.where((coords[:, 0] == x) & (coords[:, 1] == y))
         if matches.size == 0:
             raise ValueError(f"Coordinates (x={x}, y={y}) not found in the dataset.")
 
