@@ -1,0 +1,239 @@
+import copy
+
+import numpy as np
+from scipy import sparse
+from sklearn.decomposition import NMF as SklearnNMF
+from sklearn.decomposition import PCA as SklearnPCA
+from sklearn.manifold import TSNE as SklearnTSNE
+
+from imzdesk.core import DImage, RImage, SImage
+
+
+class Compose:
+    """
+    Chain several transforms.
+
+    Parameters
+    ----------
+    transforms:
+        Callable transforms applied in order.
+    """
+
+    def __init__(self, transforms):
+        self.transforms = list(transforms)
+
+    def __call__(self, image):
+        for transform in self.transforms:
+            image = transform(image)
+        return image
+
+
+class Normalize:
+    """
+    Normalize sparse pixel values.
+
+    Parameters
+    ----------
+    method:
+        Normalization method. Supported values are ``'none'``, ``'tic'``,
+        ``'rms'``, ``'median'``, ``'max'``, and ``'log1p'``.
+    """
+
+    def __init__(self, method: str | None = 'tic'):
+        self.method = method
+
+    def __call__(self, image: RImage) -> RImage:
+        method = 'none' if self.method is None else self.method.lower()
+        normalized = copy.copy(image)
+        if method == 'none':
+            normalized.values = image.values.copy()
+            return normalized
+        values = image.values.astype(np.float32, copy=True)
+        if method == 'log1p':
+            normalized.values = np.log1p(values)
+            return normalized
+        for pixel_index in range(len(image)):
+            pixel_start = image.offsets[pixel_index]
+            pixel_stop = image.offsets[pixel_index + 1]
+            pixel_values = values[pixel_start:pixel_stop]
+            if pixel_values.size == 0:
+                continue
+            if method == 'tic':
+                normalizer = pixel_values.sum(dtype=np.float64)
+            elif method == 'rms':
+                normalizer = np.sqrt(np.mean(np.square(pixel_values, dtype=np.float64)))
+            elif method == 'median':
+                normalizer = np.median(pixel_values)
+            else:
+                normalizer = pixel_values.max()
+            if normalizer > 0:
+                values[pixel_start:pixel_stop] = pixel_values / normalizer
+        normalized.values = values
+        return normalized
+
+
+class Bin:
+    """
+    Bin ragged sparse pixels into rectangular sparse features.
+
+    Parameters
+    ----------
+    minimum_channel:
+        Inclusive lower channel bound.
+    maximum_channel:
+        Exclusive upper channel bound.
+    bin_width:
+        Width of each channel bin.
+    """
+
+    def __init__(self, minimum_channel: float = 50.0, maximum_channel: float = 1000.0, bin_width: float = 2.0):
+        self.minimum_channel = minimum_channel
+        self.maximum_channel = maximum_channel
+        self.bin_width = bin_width
+
+    def __call__(self, image: RImage) -> SImage:
+        bin_edges = np.arange(self.minimum_channel, self.maximum_channel + self.bin_width, self.bin_width, dtype=np.float64)
+        number_of_bins = bin_edges.size - 1
+        feature_rows = []
+        feature_columns = []
+        feature_values = []
+        for pixel_index in range(len(image)):
+            positions, values = image.pixel(pixel_index)
+            within_channel_range = (positions >= self.minimum_channel) & (positions < self.maximum_channel)
+            if not within_channel_range.any():
+                continue
+            bin_indices = np.floor((positions[within_channel_range] - self.minimum_channel) / self.bin_width).astype(np.int64)
+            bin_sort_order = np.argsort(bin_indices)
+            sorted_bin_indices = bin_indices[bin_sort_order]
+            sorted_values = values[within_channel_range][bin_sort_order]
+            occupied_bins, occupied_bin_starts = np.unique(sorted_bin_indices, return_index=True)
+            summed_bin_values = np.add.reduceat(sorted_values, occupied_bin_starts)
+            feature_rows.extend([pixel_index] * occupied_bins.size)
+            feature_columns.extend(occupied_bins.tolist())
+            feature_values.extend(summed_bin_values.tolist())
+        binned_features = sparse.csr_matrix(
+            (np.asarray(feature_values, dtype=np.float32), (feature_rows, feature_columns)),
+            shape=(len(image), number_of_bins),
+            dtype=np.float32,
+        )
+        return SImage(
+            values=binned_features,
+            coordinates=image.coordinates.copy(),
+        )
+
+
+class ToDense:
+    """
+    Convert a sparse image with rectangular features into a dense image.
+    """
+
+    def __call__(self, sparse_image: SImage) -> DImage:
+        return DImage(
+            values=sparse_image.values.toarray(),
+            coordinates=sparse_image.coordinates.copy(),
+        )
+
+
+class Reduce:
+    """
+    Base callable for reducing images to dense pixel values.
+
+    Notes
+    -----
+    Subclasses return a ``DImage``.
+    """
+
+    def __call__(self, image: RImage | SImage | DImage) -> DImage:
+        raise NotImplementedError
+
+
+class TIC(Reduce):
+    """
+    Sum each pixel's feature vector into one intensity value.
+    """
+
+    def __call__(self, sparse_image: SImage) -> DImage:
+        return DImage(
+            values=np.asarray(sparse_image.values.sum(axis=1)).ravel(),
+            coordinates=sparse_image.coordinates.copy(),
+        )
+
+
+class PCA(Reduce):
+    """
+    Reduce dense images with principal component analysis.
+
+    Parameters
+    ----------
+    number_of_components:
+        Number of principal components to return.
+    random_seed:
+        Seed used by randomized PCA.
+    """
+
+    def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+        self.number_of_components = number_of_components
+        self.random_seed = random_seed
+
+    def __call__(self, dense_image: DImage) -> DImage:
+        values = SklearnPCA(
+            n_components=self.number_of_components,
+            svd_solver='randomized',
+            random_state=self.random_seed,
+        ).fit_transform(dense_image.values)
+        return DImage(values=values, coordinates=dense_image.coordinates.copy())
+
+
+class NMF(Reduce):
+    """
+    Reduce sparse or dense images with non-negative matrix factorization.
+
+    Parameters
+    ----------
+    number_of_components:
+        Number of NMF components to return.
+    random_seed:
+        Seed used by the NMF initializer.
+    """
+
+    def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+        self.number_of_components = number_of_components
+        self.random_seed = random_seed
+
+    def __call__(self, image: SImage | DImage) -> DImage:
+        values = SklearnNMF(
+            n_components=self.number_of_components,
+            init='nndsvda',
+            max_iter=300,
+            random_state=self.random_seed,
+        ).fit_transform(image.values)
+        return DImage(values=values, coordinates=image.coordinates.copy())
+
+
+class TSNE(Reduce):
+    """
+    Reduce dense images with t-SNE after PCA preprojection.
+
+    Parameters
+    ----------
+    number_of_components:
+        Number of t-SNE dimensions to return.
+    random_seed:
+        Seed used by PCA preprojection and t-SNE.
+    """
+
+    def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+        self.number_of_components = number_of_components
+        self.random_seed = random_seed
+
+    def __call__(self, dense_image: DImage) -> DImage:
+        pca_projection = SklearnPCA(n_components=32, random_state=self.random_seed).fit_transform(dense_image.values)
+        values = SklearnTSNE(
+            n_components=self.number_of_components,
+            init='pca',
+            learning_rate='auto',
+            perplexity=30,
+            max_iter=750,
+            random_state=self.random_seed,
+        ).fit_transform(pca_projection)
+        return DImage(values=values, coordinates=dense_image.coordinates.copy())
