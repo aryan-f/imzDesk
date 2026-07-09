@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 # Keep an LRU cache for consecutive file access.
-@functools.lru_cache(maxsize=8)
+@functools.lru_cache(maxsize=4)
 def get_wsi_instance(filepath: pathlib.Path):
     return WSI(filepath)
 
