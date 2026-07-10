@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import psutil
@@ -18,20 +19,27 @@ def infra(request: Request):
     return {'workspace': request.app.state.settings.workspace}
 
 
-@router.get('/metrics')
-def metrics():
-    cpu_usage = psutil.cpu_percent(interval=0.1)  # a quick sample over 100ms
-    memory_info = psutil.virtual_memory()  # virtual memory statistics
-    return {
-        'cpu': {
-            'usage_percent': cpu_usage
-        },
-        'memory': {
-            'usage_percent': memory_info.percent,
-            'used': round(memory_info.used / (1024 * 1024 * 1024), 2),
-            'total': round(memory_info.total / (1024 * 1024 * 1024), 2)
+@router.get('/metrics', response_class=EventSourceResponse)
+async def metrics(request: Request):
+    psutil.cpu_percent(interval=None)
+    while True:
+        if await request.is_disconnected():
+            return
+        cpu_usage = psutil.cpu_percent(interval=None)
+        memory_info = psutil.virtual_memory()
+        yield {
+            'data': {
+                'cpu': {
+                    'usage_percent': cpu_usage
+                },
+                'memory': {
+                    'usage_percent': memory_info.percent,
+                    'used': round(memory_info.used / (1024 * 1024 * 1024), 2),
+                    'total': round(memory_info.total / (1024 * 1024 * 1024), 2)
+                }
+            }
         }
-    }
+        await asyncio.sleep(2)
 
 
 @router.get('/logs', response_class=EventSourceResponse)
