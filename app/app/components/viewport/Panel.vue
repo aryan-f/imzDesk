@@ -8,14 +8,31 @@ const { state, setActive, closeFile } = useWorkspace()
 const props = withDefaults(defineProps<{
   wsi?: string | null
   msi?: string | null
+  displayWsi?: boolean
+  displayMsi?: boolean
+  registered?: boolean
   other?: boolean
+  overlay?: boolean
 }>(), {
   wsi: null,
   msi: null,
+  displayWsi: false,
+  displayMsi: false,
+  registered: false,
   other: false,
+  overlay: false,
 })
 
-const overlaid = computed(() => props.wsi && props.msi)
+const emit = defineEmits<{
+  'update:registered': [value: boolean]
+  'update:overlay': [value: boolean]
+}>()
+
+const showWsi = computed(() => Boolean(props.wsi && props.displayWsi))
+const showMsi = computed(() => Boolean(props.msi && props.displayMsi))
+const overlaid = computed(() => showWsi.value && showMsi.value)
+const canRegister = computed(() => Boolean(msiFilepath.value && fixedWsiFilepath.value))
+const canOverlay = computed(() => Boolean(props.msi && props.wsi && props.registered))
 
 const annotationTools = [
   { label: 'Select', icon: 'i-lucide-mouse-pointer-2' },
@@ -32,7 +49,7 @@ const msiRendering = ref(false)
 const viewerEl = ref<HTMLElement | null>(null)
 const viewportEl = ref<HTMLElement | null>(null)
 
-const wsiLoading = ref(Boolean(props.wsi))
+const wsiLoading = ref(showWsi.value)
 const viewerReady = ref(false)
 
 const cropRect = ref<{ x: number, y: number, width: number, height: number } | null>(null)
@@ -47,11 +64,11 @@ const msiDisplay = ref<MSIDisplay>({
     smoothing: false,
   },
   cubing: {
-    method: 'binning',
+    method: 'bin',
     mzMin: 50,
     mzMax: 1000,
     binWidth: 0.1,
-    model: 'dreams',
+    model: 'roman-bushuiev/DreaMS',
   },
   reduction: {
     method: 'tic',
@@ -80,13 +97,18 @@ function makeGetTileUrl(filepath: string) {
 }
 
 const msiFilepath = computed(() => {
-  if (!props.msi) return null
+  if (!props.msi || !props.displayMsi) return null
   return `${state.value.dirpath}/${props.msi}`
 })
 
 const wsiFilepath = computed(() => {
-  if (!props.wsi) return null
+  if (!props.wsi || !props.displayWsi) return null
   return `${state.value.dirpath}/${props.wsi}`
+})
+
+const fixedWsiFilepath = computed(() => {
+  if (props.wsi) return `${state.value.dirpath}/${props.wsi}`
+  return null
 })
 
 const wsiMeta = ref<WSIMetadata | null>(null)
@@ -230,10 +252,10 @@ function displayMsiImage(url: string) {
       type: 'image',
       url,
     } as unknown as TileSource,
-    index: props.wsi ? 1 : currentViewer.world.getItemCount(),
+    index: showWsi.value ? 1 : currentViewer.world.getItemCount(),
     success: (event) => {
       msiImageLayer = (event as unknown as { item: OpenSeadragon.TiledImage }).item
-      if (!props.wsi) {
+      if (!showWsi.value) {
         viewerReady.value = true
         currentViewer.viewport.goHome(true)
       }
@@ -249,6 +271,7 @@ async function renderMsiImage() {
     method: 'POST',
     body: {
       filepath: msiFilepath.value,
+      registered: props.registered,
       preprocessing: msiDisplay.value.preprocessing,
       cubing: msiDisplay.value.cubing,
       reduction: msiDisplay.value.reduction,
@@ -349,6 +372,23 @@ function toggleCrop() {
   applyCrop()
 }
 
+function toggleOverlay() {
+  if (!canOverlay.value) return
+  emit('update:overlay', !props.overlay)
+}
+
+async function registerMsi() {
+  if (!msiFilepath.value || !fixedWsiFilepath.value) return
+  const response = await $fetch<{ registered: boolean }>('/api/images/msi/register', {
+    method: 'POST',
+    body: {
+      filepath: msiFilepath.value,
+      fixed_filepath: fixedWsiFilepath.value,
+    },
+  })
+  emit('update:registered', response.registered)
+}
+
 function zoomBy(factor: number) {
   if (!viewer) return
   viewer.viewport.zoomBy(factor)
@@ -392,22 +432,22 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreenState)
 })
 
-watch(() => [props.wsi, props.msi], () => {
+watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], () => {
   destroy()
   cropEnabled.value = false
   init()
 })
 
 function closeAll() {
-  if (props.wsi) closeFile('WSI')
-  if (props.msi) closeFile('MSI')
+  if (showWsi.value) closeFile('WSI')
+  if (showMsi.value) closeFile('MSI')
 }
 </script>
 
 <template>
   <div :class="{ 'max-w-1/2': other, 'last:border-l': other }" class="relative flex flex-col flex-1 border-default">
     <div class="flex items-center bg-elevated px-3 py-1 text-base border-b border-default">
-      <div v-if="wsi" class="flex truncate gap-2 cursor-pointer" @click="setActive('WSI')">
+      <div v-if="showWsi" class="flex truncate gap-2 cursor-pointer" @click="setActive('WSI')">
         <UBadge label="WSI" color="primary" variant="soft" class="px-1 py-px" />
         <div class="font-data text-sm truncate">
           {{ wsi }}
@@ -416,14 +456,14 @@ function closeAll() {
       <div v-if="overlaid">
         and
       </div>
-      <div v-if="msi" class="flex truncate gap-2 cursor-pointer" @click="setActive('MSI')">
+      <div v-if="showMsi" class="flex truncate gap-2 cursor-pointer" @click="setActive('MSI')">
         <UBadge label="MSI" color="secondary" variant="soft" class="px-1 py-px" />
         <div class="font-data text-sm truncate">
           {{ msi }}
         </div>
       </div>
       <div class="flex-1" />
-      <ViewportDisplayMSI v-if="msi" :display="msiDisplay" @apply="applyMsiDisplay" />
+      <ViewportDisplayMSI v-if="showMsi" :display="msiDisplay" @apply="applyMsiDisplay" />
       <UButton
         icon="mdi-close"
         variant="ghost"
@@ -434,8 +474,8 @@ function closeAll() {
     </div>
     <div ref="viewportEl" class="relative flex-1 bg-default">
       <div ref="viewerEl" class="absolute inset-0" />
-      <div v-if="wsi || msi" class="pointer-events-none absolute inset-0 z-10">
-        <div class="pointer-events-auto absolute top-3 flex flex-col gap-1 rounded-md border border-default/80 bg-default/70 p-1 shadow-lg backdrop-blur-md" :class="wsi ? 'inset-s-3' : 'inset-e-3'">
+      <div v-if="showWsi || showMsi" class="pointer-events-none absolute inset-0 z-10">
+        <div class="pointer-events-auto absolute top-3 flex flex-col gap-1 rounded-md border border-default/80 bg-default/70 p-1 shadow-lg backdrop-blur-md" :class="showWsi ? 'inset-s-3' : 'inset-e-3'">
           <UTooltip v-for="tool in annotationTools" :key="tool.label" :text="tool.label" :delay-duration="250">
             <UButton
               :icon="tool.icon"
@@ -452,7 +492,7 @@ function closeAll() {
             {{ metadataLabel }}
           </div>
         </template>
-        <div class="pointer-events-auto absolute bottom-3 flex flex-col gap-1 rounded-md border border-default/80 bg-default/70 p-1 shadow-lg backdrop-blur-md" :class="wsi ? 'inset-s-3' : 'inset-e-3'">
+        <div class="pointer-events-auto absolute bottom-3 flex flex-col gap-1 rounded-md border border-default/80 bg-default/70 p-1 shadow-lg backdrop-blur-md" :class="showWsi ? 'inset-s-3' : 'inset-e-3'">
           <UTooltip text="Zoom in" :delay-duration="250">
             <UButton
               icon="i-lucide-plus"
@@ -497,8 +537,8 @@ function closeAll() {
             />
           </UTooltip>
         </div>
-        <div v-if="wsi" class="pointer-events-auto absolute bottom-3 inset-s-1/2 flex -translate-x-1/2 rounded-md border border-default/80 bg-default/70 p-1 shadow-lg backdrop-blur-md">
-          <UTooltip :text="cropEnabled ? 'Show full slide' : 'Show crop only'" :delay-duration="250">
+        <div v-if="showWsi || showMsi" class="pointer-events-auto absolute bottom-3 inset-s-1/2 flex -translate-x-1/2 gap-1 rounded-md border border-default/80 bg-default/70 p-1 shadow-lg backdrop-blur-md">
+          <UTooltip v-if="showWsi" :text="cropEnabled ? 'Show full slide' : 'Show crop only'" :delay-duration="250">
             <UButton
               :icon="cropEnabled ? 'mdi-crop' : 'mdi-crop-free'"
               :color="cropEnabled ? 'primary' : 'neutral'"
@@ -509,13 +549,35 @@ function closeAll() {
               @click="toggleCrop"
             />
           </UTooltip>
+          <UTooltip v-if="showMsi" text="Register" :delay-duration="250">
+            <UButton
+              icon="i-lucide-scan-line"
+              :color="registered ? 'secondary' : 'neutral'"
+              :disabled="!canRegister"
+              :variant="registered ? 'soft' : 'ghost'"
+              size="sm"
+              square
+              @click="registerMsi"
+            />
+          </UTooltip>
+          <UTooltip v-if="showMsi" :text="overlay ? 'Show separately' : 'Overlay'" :delay-duration="250">
+            <UButton
+              icon="i-lucide-layers"
+              :color="overlay ? 'secondary' : 'neutral'"
+              :disabled="!canOverlay"
+              :variant="overlay ? 'soft' : 'ghost'"
+              size="sm"
+              square
+              @click="toggleOverlay"
+            />
+          </UTooltip>
         </div>
       </div>
       <UIcon
         v-if="wsiLoading || msiRendering"
         name="i-lucide-loader-circle"
         class="absolute bottom-4 size-4 animate-spin text-primary"
-        :class="wsi ? 'inset-e-4' : 'inset-s-4'"
+        :class="showWsi ? 'inset-e-4' : 'inset-s-4'"
       />
     </div>
   </div>

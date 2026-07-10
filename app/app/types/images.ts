@@ -25,7 +25,7 @@ export interface MSIDisplay {
     smoothing: boolean
   }
   cubing: {
-    method: 'binning' | 'dreams'
+    method: 'bin' | 'embed'
     mzMin: number
     mzMax: number
     binWidth: number

@@ -2,48 +2,19 @@ import functools
 import io
 import logging
 import pathlib
-from typing import Literal
+from typing import List
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
 
+import imzdesk.transforms as T
 from imzdesk.io import MSI
+from imzdesk.server.schema.images import msi as schema
 from imzdesk.server.utils.filesystem import resolve_path
-from imzdesk.transforms import Bin, NMF, PCA, TIC, TSNE, Normalize, ToDense, ToRImage
 from imzdesk.visualization import DImageDisplay
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-class PreprocessingSettings(BaseModel):
-    normalization: str = 'tic'
-    centroiding: str = 'none'
-    baselineCorrection: bool = False
-    smoothing: bool = False
-
-
-class CubingSettings(BaseModel):
-    method: Literal['binning', 'dreams'] = 'binning'
-    mzMin: float = 50.0
-    mzMax: float = 1000.0
-    binWidth: float = 0.1
-    model: str = 'dreams'
-
-
-class ReductionSettings(BaseModel):
-    method: Literal['tic', 'pca', 'nmf', 'tsne', 'umap'] = 'tic'
-    components: int = 1
-    scaling: str = 'robust'
-    colormap: str = 'viridis'
-
-
-class MSIImageRequest(BaseModel):
-    filepath: str
-    preprocessing: PreprocessingSettings = Field(default_factory=PreprocessingSettings)
-    cubing: CubingSettings = Field(default_factory=CubingSettings)
-    reduction: ReductionSettings = Field(default_factory=ReductionSettings)
 
 
 # Keep an LRU cache for consecutive file access.
@@ -61,29 +32,57 @@ def metadata(request: Request, filepath: str) -> MSI.metadata_class:
 
 
 @router.post('/image')
-def image(request: Request, settings: MSIImageRequest):
+def image(request: Request, settings: schema.MSIImageRequest):
     workspace = request.app.state.settings.workspace
     filepath = resolve_path(workspace, settings.filepath)
     msi = get_msi_instance(filepath)
-    ragged_image = ToRImage()(msi)
-    normalized = Normalize(settings.preprocessing.normalization)(ragged_image)
-    if settings.cubing.method != 'binning':
-        raise NotImplementedError('DreaMS embeddings are not implemented yet.')
-    binned = Bin(
-        minimum_channel=settings.cubing.mzMin,
-        maximum_channel=settings.cubing.mzMax,
-        bin_width=settings.cubing.binWidth,
-    )(normalized)
-    if settings.reduction.method == 'tic':
-        dense_image = TIC()(binned)
-    elif settings.reduction.method == 'pca':
-        dense_image = PCA(number_of_components=settings.reduction.components)(ToDense()(binned))
-    elif settings.reduction.method == 'nmf':
-        dense_image = NMF(number_of_components=settings.reduction.components)(binned)
-    elif settings.reduction.method == 'tsne':
-        dense_image = TSNE(number_of_components=settings.reduction.components)(ToDense()(binned))
-    else:
-        raise NotImplementedError('UMAP is not implemented yet.')
+
+    # TODO: Cache results.
+
+    transforms: List[T.Transform]  = [
+        T.ToRImage(),
+        T.Normalize(settings.preprocessing.normalization),
+    ]
+
+    match settings.cubing.method:
+        case 'bin':
+            transforms.append(T.Bin(minimum_channel=settings.cubing.mzMin, maximum_channel=settings.cubing.mzMax, bin_width=settings.cubing.binWidth))
+        case 'embed':
+            transforms.append(T.Embed(model=settings.cubing.model))
+        case other:
+            logger.error(f'Unknown cubing method: {other}')
+
+    match settings.reduction.method:
+        case 'tic':
+            transforms.append(T.TIC())
+        case 'pca':
+            transforms.extend([
+                T.ToDense(),
+                T.PCA(number_of_components=settings.reduction.components)
+            ])
+        case 'nmf':
+            transforms.append(T.NMF(number_of_components=settings.reduction.components))
+        case 'tsne':
+            transforms.extend([
+                T.ToDense(),
+                T.TSNE(number_of_components=settings.reduction.components)
+            ])
+        case other:
+            logger.error(f'Unknown reduction method: {other}')
+
+    transform = T.Compose(transforms)
+    image = transform(msi)
+
     buffer = io.BytesIO()
-    DImageDisplay(dense_image, colormap=settings.reduction.colormap).save(buffer, format='PNG')
+    display = DImageDisplay(image, colormap=settings.reduction.colormap)
+    display.save(buffer, format='PNG')
+
     return Response(buffer.getvalue(), media_type='image/png')
+
+
+@router.post('/register')
+def register(request: Request, settings: schema.MSIRegistrationRequest) -> schema.MSIRegistrationResponse:
+    workspace = request.app.state.settings.workspace
+    resolve_path(workspace, settings.filepath)
+    resolve_path(workspace, settings.fixed_filepath)
+    return schema.MSIRegistrationResponse()

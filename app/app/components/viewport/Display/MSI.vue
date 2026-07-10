@@ -33,12 +33,12 @@ const centroidingOptions = [
 ]
 
 const cubingOptions = [
-  { label: 'Binning', value: 'binning' },
-  { label: 'Embeddings', value: 'dreams' },
+  { label: 'Binning', value: 'bin' },
+  { label: 'Embeddings', value: 'embed' },
 ]
 
 const embeddingModelOptions = [
-  { label: 'DreaMS', value: 'dreams' },
+  { label: 'DreaMS', value: 'roman-bushuiev/DreaMS' },
 ]
 
 const defaultReduction = { label: 'PCA', value: 'pca' }
@@ -53,7 +53,7 @@ const reductionOptions = [
 
 const availableReductionOptions = computed(() => reductionOptions.map(option => ({
   ...option,
-  disabled: option.value === 'tic' && draft.cubing.method !== 'binning',
+  disabled: option.value === 'tic' && draft.cubing.method !== 'bin',
 })))
 
 const selectedReduction = computed(() => (
@@ -100,7 +100,7 @@ watch(
 watch(
   () => [draft.cubing.method, draft.reduction.method],
   () => {
-    if (draft.cubing.method !== 'binning' && draft.reduction.method === 'tic') {
+    if (draft.cubing.method !== 'bin' && draft.reduction.method === 'tic') {
       draft.reduction.method = 'pca'
     }
     if (draft.reduction.method === 'tic') {
@@ -163,7 +163,7 @@ function apply() {
               <UFormField label="Method" size="sm">
                 <USelect v-model="draft.cubing.method" :items="cubingOptions" class="w-full" />
               </UFormField>
-              <UFormField v-if="draft.cubing.method === 'dreams'" label="Model" size="sm">
+              <UFormField v-if="draft.cubing.method === 'embed'" label="Model" size="sm">
                 <USelect v-model="draft.cubing.model" :items="embeddingModelOptions" class="w-full" />
               </UFormField>
               <UFormField v-else label="Bin width" size="sm">

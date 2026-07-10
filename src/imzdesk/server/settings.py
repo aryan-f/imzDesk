@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     workspace: Path
     log_level: int | str = logging.INFO
     max_workers: int = Field(default=4, ge=1)
+    device: str = 'cuda'
 
     @field_validator('workspace')
     @classmethod
