@@ -16,14 +16,17 @@ logger = logging.getLogger(__name__)
 
 class DreaMS(Model):
     download_repository = 'aryan-f/DreaMS'
+    downloadable = 'embedding_model.safetensors'
 
     def __init__(self, device=None):
         self.device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
         device = self.device.type if self.device.index is None else f'{self.device.type}:{self.device.index}'
         network = DreaMSNet()
         network = network.to(device)
-        logger.warning('Fetching weights from 🤗Hugging Face... This make take a while.')
-        filepath = hf_hub_download(repo_id=self.download_repository, filename='embedding_model.safetensors')
+        hf = hf_hub_download(repo_id=self.download_repository, filename=self.downloadable, dry_run=True)
+        if not hf.is_cached:
+            logger.warning('Fetching weights from 🤗Hugging Face... This make take a while.')
+        filepath = hf_hub_download(repo_id=self.download_repository, filename=self.downloadable)
         logger.info(f'Loading "{self.download_repository}" weights from "{filepath}" [{device}]')
         load_model(network, filepath, device=device, strict=True)
         self.network = network.eval()

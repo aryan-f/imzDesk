@@ -23,7 +23,7 @@ class ImageBase(abc.ABC):
         self.metadata = None
 
     def resolve_metadata(self):
-        self.metadata_path = self.derived_path(self.filepath, '.meta.yaml')
+        self.metadata_path = self.derived_path('.meta.yaml')
         try:
             self.metadata = self.metadata_class.from_file(self.metadata_path)
         except FileNotFoundError:
@@ -44,6 +44,5 @@ class ImageBase(abc.ABC):
     def write_metadata_to_disk(self):
         self.metadata.to_file(self.metadata_path)
 
-    @classmethod
-    def derived_path(cls, path: pathlib.Path, suffix: str) -> pathlib.Path:
-        return path.parent / '.imzDesk' / f'{path.stem}{suffix}'
+    def derived_path(self, suffix: str) -> pathlib.Path:
+        return self.filepath.parent / '.imzDesk' / f'{self.filepath.stem}{suffix}'

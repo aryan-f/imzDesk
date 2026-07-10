@@ -48,7 +48,6 @@ const reductionOptions = [
   defaultReduction,
   { label: 'NMF', value: 'nmf' },
   { label: 't-SNE', value: 'tsne' },
-  { label: 'UMAP', value: 'umap' },
 ]
 
 const availableReductionOptions = computed(() => reductionOptions.map(option => ({

@@ -45,7 +45,7 @@ class MSI(ImageBase):
 
         self.ibd_path = Path(ibd_path) if ibd_path is not None else self.filepath.with_suffix('.ibd')
 
-        self.cache_path = self.derived_path(self.filepath, '.h5')
+        self.cache_path = self.derived_path('.h5')
         if self.cache_path.exists():
             self.reader = self.from_cache()
         else:

@@ -1,15 +1,15 @@
 import functools
-import io
 import logging
 import pathlib
 from typing import List
 
 from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse
 
 import imzdesk.transforms as T
 from imzdesk.io import MSI
 from imzdesk.server.schema.images import msi as schema
+from imzdesk.server.utils.caching import cache_path
 from imzdesk.server.utils.filesystem import resolve_path
 from imzdesk.visualization import DImageDisplay
 
@@ -37,7 +37,13 @@ def image(request: Request, settings: schema.MSIImageRequest):
     filepath = resolve_path(workspace, settings.filepath)
     msi = get_msi_instance(filepath)
 
-    # TODO: Cache results.
+    image_path = cache_path(msi, key=settings, suffix='.png')
+
+    if image_path.exists():
+        print('Responding from', image_path)
+        return FileResponse(path=image_path, media_type='image/png', filename=image_path.name)
+
+    # TODO: Move computation to a thread.
 
     transforms: List[T.Transform]  = [
         T.ToRImage(),
@@ -50,7 +56,7 @@ def image(request: Request, settings: schema.MSIImageRequest):
         case 'embed':
             transforms.append(T.Embed(model=settings.cubing.model))
         case other:
-            logger.error(f'Unknown cubing method: {other}')
+            raise RuntimeError(f'Unknown cubing method: {other}')
 
     match settings.reduction.method:
         case 'tic':
@@ -68,16 +74,15 @@ def image(request: Request, settings: schema.MSIImageRequest):
                 T.TSNE(number_of_components=settings.reduction.components)
             ])
         case other:
-            logger.error(f'Unknown reduction method: {other}')
+            raise RuntimeError(f'Unknown reduction method: {other}')
 
     transform = T.Compose(transforms)
     image = transform(msi)
 
-    buffer = io.BytesIO()
     display = DImageDisplay(image, colormap=settings.reduction.colormap)
-    display.save(buffer, format='PNG')
+    display.save(image_path, format='PNG')
 
-    return Response(buffer.getvalue(), media_type='image/png')
+    return FileResponse(path=image_path, media_type='image/png', filename=image_path.name)
 
 
 @router.post('/register')
