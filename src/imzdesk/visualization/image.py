@@ -12,18 +12,25 @@ from imzdesk.core import DImage
 
 
 class DImageDisplay:
-    """
-    Display a dense image.
-
-    Parameters
-    ----------
-    image:
-        Dense image to display.
-    colormap:
-        Matplotlib colormap name for scalar images.
-    """
 
     def __init__(self, image: DImage, colormap: str = 'magma'):
+        """
+        Display a dense image.
+
+        Parameters
+        ----------
+        image:
+            Dense image to display.
+        colormap:
+            Matplotlib colormap name for scalar images.
+
+        Attributes
+        ----------
+        dimage: DImage
+            Dense image to display.
+        colormap: str
+            Matplotlib colormap name for scalar images.
+        """
         self.dimage = image
         self.colormap = colormap
 
@@ -74,7 +81,7 @@ class DImageDisplay:
 
     def _grid(self) -> np.ndarray:
         values = np.asarray(self.dimage.values)
-        coordinates = np.asarray(self.dimage.coordinates)[:, :2].astype(int)
+        coordinates = np.asarray(self.dimage.coordinates).astype(int)
         minimum_coordinates = coordinates.min(axis=0)
         maximum_coordinates = coordinates.max(axis=0)
         height = int(maximum_coordinates[1] - minimum_coordinates[1] + 1)

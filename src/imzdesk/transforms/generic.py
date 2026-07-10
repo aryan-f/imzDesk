@@ -7,19 +7,25 @@ from sklearn.decomposition import PCA as SklearnPCA
 from sklearn.manifold import TSNE as SklearnTSNE
 
 from imzdesk.core import DImage, RImage, SImage
+from imzdesk.transforms.base import Transform
 
 
-class Compose:
-    """
-    Chain several transforms.
-
-    Parameters
-    ----------
-    transforms:
-        Callable transforms applied in order.
-    """
+class Compose(Transform):
 
     def __init__(self, transforms):
+        """
+        Chain several transforms.
+
+        Parameters
+        ----------
+        transforms:
+            Callable transforms applied in order.
+
+        Attributes
+        ----------
+        transforms: list
+            Callable transforms applied in order.
+        """
         self.transforms = list(transforms)
 
     def __call__(self, image):
@@ -28,18 +34,22 @@ class Compose:
         return image
 
 
-class Normalize:
-    """
-    Normalize sparse pixel values.
-
-    Parameters
-    ----------
-    method:
-        Normalization method. Supported values are ``'none'``, ``'tic'``,
-        ``'rms'``, ``'median'``, ``'max'``, and ``'log1p'``.
-    """
-
+class Normalize(Transform):
     def __init__(self, method: str | None = 'tic'):
+        """
+        Normalize sparse pixel values.
+
+        Parameters
+        ----------
+        method:
+            Normalization method. Supported values are ``'none'``, ``'tic'``,
+            ``'rms'``, ``'median'``, ``'max'``, and ``'log1p'``.
+
+        Attributes
+        ----------
+        method: str | None
+            Normalization method.
+        """
         self.method = method
 
     def __call__(self, image: RImage) -> RImage:
@@ -72,21 +82,29 @@ class Normalize:
         return normalized
 
 
-class Bin:
-    """
-    Bin ragged sparse pixels into rectangular sparse features.
-
-    Parameters
-    ----------
-    minimum_channel:
-        Inclusive lower channel bound.
-    maximum_channel:
-        Exclusive upper channel bound.
-    bin_width:
-        Width of each channel bin.
-    """
-
+class Bin(Transform):
     def __init__(self, minimum_channel: float = 50.0, maximum_channel: float = 1000.0, bin_width: float = 2.0):
+        """
+        Bin ragged sparse pixels into rectangular sparse features.
+
+        Parameters
+        ----------
+        minimum_channel:
+            Inclusive lower channel bound.
+        maximum_channel:
+            Exclusive upper channel bound.
+        bin_width:
+            Width of each channel bin.
+
+        Attributes
+        ----------
+        minimum_channel: float
+            Inclusive lower channel bound.
+        maximum_channel: float
+            Exclusive upper channel bound.
+        bin_width: float
+            Width of each channel bin.
+        """
         self.minimum_channel = minimum_channel
         self.maximum_channel = maximum_channel
         self.bin_width = bin_width
@@ -122,19 +140,21 @@ class Bin:
         )
 
 
-class ToDense:
+class ToDense(Transform):
     """
     Convert a sparse image with rectangular features into a dense image.
     """
 
-    def __call__(self, sparse_image: SImage) -> DImage:
+    def __call__(self, image: SImage | DImage) -> DImage:
+        if isinstance(image, DImage):
+            return image
         return DImage(
-            values=sparse_image.values.toarray(),
-            coordinates=sparse_image.coordinates.copy(),
+            values=image.values.toarray(),
+            coordinates=image.coordinates.copy(),
         )
 
 
-class Reduce:
+class Reduce(Transform):
     """
     Base callable for reducing images to dense pixel values.
 
@@ -160,18 +180,24 @@ class TIC(Reduce):
 
 
 class PCA(Reduce):
-    """
-    Reduce dense images with principal component analysis.
-
-    Parameters
-    ----------
-    number_of_components:
-        Number of principal components to return.
-    random_seed:
-        Seed used by randomized PCA.
-    """
-
     def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+        """
+        Reduce dense images with principal component analysis.
+
+        Parameters
+        ----------
+        number_of_components:
+            Number of principal components to return.
+        random_seed:
+            Seed used by randomized PCA.
+
+        Attributes
+        ----------
+        number_of_components: int
+            Number of principal components to return.
+        random_seed: int
+            Seed used by randomized PCA.
+        """
         self.number_of_components = number_of_components
         self.random_seed = random_seed
 
@@ -185,18 +211,24 @@ class PCA(Reduce):
 
 
 class NMF(Reduce):
-    """
-    Reduce sparse or dense images with non-negative matrix factorization.
-
-    Parameters
-    ----------
-    number_of_components:
-        Number of NMF components to return.
-    random_seed:
-        Seed used by the NMF initializer.
-    """
-
     def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+        """
+        Reduce sparse or dense images with non-negative matrix factorization.
+
+        Parameters
+        ----------
+        number_of_components:
+            Number of NMF components to return.
+        random_seed:
+            Seed used by the NMF initializer.
+
+        Attributes
+        ----------
+        number_of_components: int
+            Number of NMF components to return.
+        random_seed: int
+            Seed used by the NMF initializer.
+        """
         self.number_of_components = number_of_components
         self.random_seed = random_seed
 
@@ -211,18 +243,24 @@ class NMF(Reduce):
 
 
 class TSNE(Reduce):
-    """
-    Reduce dense images with t-SNE after PCA preprojection.
-
-    Parameters
-    ----------
-    number_of_components:
-        Number of t-SNE dimensions to return.
-    random_seed:
-        Seed used by PCA preprojection and t-SNE.
-    """
-
     def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+        """
+        Reduce dense images with t-SNE after PCA preprojection.
+
+        Parameters
+        ----------
+        number_of_components:
+            Number of t-SNE dimensions to return.
+        random_seed:
+            Seed used by PCA preprojection and t-SNE.
+
+        Attributes
+        ----------
+        number_of_components: int
+            Number of t-SNE dimensions to return.
+        random_seed: int
+            Seed used by PCA preprojection and t-SNE.
+        """
         self.number_of_components = number_of_components
         self.random_seed = random_seed
 
