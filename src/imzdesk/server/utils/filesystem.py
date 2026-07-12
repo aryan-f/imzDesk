@@ -1,12 +1,13 @@
 from pathlib import Path
 
+import aiofiles.ospath
 from fastapi import HTTPException
 
 from imzdesk.io import CLASSES
 from imzdesk.server.schema import filesystem
 
 
-def resolve_path(workspace: Path, relpath: str, is_dir: bool = False, exists: bool = True):
+async def resolve_path(workspace: Path, relpath: str, is_dir: bool = False, exists: bool = True):
     """
     Resolves a relative path to an absolute path.
 
@@ -42,9 +43,9 @@ def resolve_path(workspace: Path, relpath: str, is_dir: bool = False, exists: bo
 
     if not resolved.is_relative_to(workspace):
         raise HTTPException(status_code=400, detail='The path is outside the workspace.')
-    if exists and not resolved.exists():
+    if exists and not await aiofiles.ospath.exists(resolved):
         raise HTTPException(status_code=404, detail='The path does not exist.')
-    if is_dir and not resolved.is_dir():
+    if is_dir and not await aiofiles.ospath.isdir(resolved):
         raise HTTPException(status_code=400, detail='The path is not a directory.')
 
     return resolved

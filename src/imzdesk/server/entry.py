@@ -12,7 +12,7 @@ def run_server():
     parser.add_argument('--port', type=int, default=8000, help='server port (default: %(default)s)')
     parser.add_argument('--workers', type=int, default=None, help='number of workers (default: %(default)s)')
     parser.add_argument('--device', type=str, default='cuda', help='model inference device (default: %(default)s)')
-    parser.add_argument('--loglevel', default='DEBUG', help='log level (default: %(default)s)')
+    parser.add_argument('--loglevel', default='INFO', help='log level (default: %(default)s)')
     parser.add_argument('--access-log', action='store_true', help='enable access log (default: %(default)s)')
     parser.add_argument('--reload', action='store_true', help='enable auto-reload (development only)')
     args = parser.parse_args()

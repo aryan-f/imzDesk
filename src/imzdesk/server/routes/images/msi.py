@@ -10,6 +10,7 @@ import imzdesk.transforms as T
 from imzdesk.io import MSI
 from imzdesk.server.schema.images import msi as schema
 from imzdesk.server.utils.caching import cache_path
+from imzdesk.server.utils.executor import threaded
 from imzdesk.server.utils.filesystem import resolve_path
 from imzdesk.visualization import DImageDisplay
 
@@ -18,34 +19,37 @@ logger = logging.getLogger(__name__)
 
 
 # Keep an LRU cache for consecutive file access.
+@threaded
 @functools.lru_cache(maxsize=4)
 def get_msi_instance(filepath: pathlib.Path):
     return MSI(filepath, cache_portable=False)
 
 
 @router.get('/metadata')
-def metadata(request: Request, filepath: str) -> MSI.metadata_class:
+async def metadata(request: Request, filepath: str) -> MSI.metadata_class:
     workspace = request.app.state.settings.workspace
-    filepath = resolve_path(workspace, filepath)
-    wsi = get_msi_instance(filepath)
+    filepath = await resolve_path(workspace, filepath)
+    wsi = await get_msi_instance(request, filepath)
     return wsi.metadata
 
 
 @router.post('/image')
-def image(request: Request, settings: schema.MSIImageRequest):
+async def image(request: Request, settings: schema.MSIImageRequest):
     workspace = request.app.state.settings.workspace
-    filepath = resolve_path(workspace, settings.filepath)
-    msi = get_msi_instance(filepath)
+    filepath = await resolve_path(workspace, settings.filepath)
+    msi = await get_msi_instance(request, filepath)
+    return await image_impl(request, msi, settings)
 
+
+@threaded
+def image_impl(msi: MSI, settings: schema.MSIImageRequest):
     image_path = cache_path(msi, key=settings, suffix='.png')
 
     if image_path.exists():
         print('Responding from', image_path)
         return FileResponse(path=image_path, media_type='image/png', filename=image_path.name)
 
-    # TODO: Move computation to a thread.
-
-    transforms: List[T.Transform]  = [
+    transforms: List[T.Transform] = [
         T.ToRImage(),
         T.Normalize(settings.preprocessing.normalization),
     ]
@@ -86,8 +90,8 @@ def image(request: Request, settings: schema.MSIImageRequest):
 
 
 @router.post('/register')
-def register(request: Request, settings: schema.MSIRegistrationRequest) -> schema.MSIRegistrationResponse:
+async def register(request: Request, settings: schema.MSIRegistrationRequest) -> schema.MSIRegistrationResponse:
     workspace = request.app.state.settings.workspace
-    resolve_path(workspace, settings.filepath)
-    resolve_path(workspace, settings.fixed_filepath)
+    await resolve_path(workspace, settings.filepath)
+    await resolve_path(workspace, settings.fixed_filepath)
     return schema.MSIRegistrationResponse()

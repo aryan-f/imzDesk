@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from imzdesk.io import WSI
+from imzdesk.server.utils.executor import threaded
 from imzdesk.server.utils.filesystem import resolve_path
 
 router = APIRouter()
@@ -14,24 +15,30 @@ logger = logging.getLogger(__name__)
 
 
 # Keep an LRU cache for consecutive file access.
+@threaded
 @functools.lru_cache(maxsize=4)
 def get_wsi_instance(filepath: pathlib.Path):
     return WSI(filepath)
 
 
 @router.get('/metadata')
-def metadata(request: Request, filepath: str) -> WSI.metadata_class:
+async def metadata(request: Request, filepath: str) -> WSI.metadata_class:
     workspace = request.app.state.settings.workspace
-    filepath = resolve_path(workspace, filepath)
-    wsi = get_wsi_instance(filepath)
+    filepath = await resolve_path(workspace, filepath)
+    wsi = await get_wsi_instance(request, filepath)
     return wsi.metadata
 
 
 @router.get('/tile')
-def tile(request: Request, filepath: str, level: int, row: int, column: int):
+async def tile(request: Request, filepath: str, level: int, row: int, column: int):
     workspace = request.app.state.settings.workspace
-    filepath = resolve_path(workspace, filepath)
-    wsi = get_wsi_instance(filepath)
+    filepath = await resolve_path(workspace, filepath)
+    wsi = await get_wsi_instance(request, filepath)
+    return await tile_impl(request, wsi, level, row, column)
+
+
+@threaded
+def tile_impl(wsi: WSI, level: int, row: int, column: int):
     im = wsi.get_tile(level, row, column)
     buffer = io.BytesIO()
     im.save(buffer, format='PNG')

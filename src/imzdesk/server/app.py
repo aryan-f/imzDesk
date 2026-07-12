@@ -38,6 +38,7 @@ def create_app():
         # Logging Broker
         custom_handler = CustomHandler(loop, settings.log_level)
         logger = logging.getLogger('imzdesk')
+        logger.setLevel(settings.log_level)
         logger.addHandler(custom_handler)
         app.state.broker = custom_handler.broker
 

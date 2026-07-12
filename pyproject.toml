@@ -3,6 +3,7 @@ name = "imzdesk"
 version = "0.0.1"
 requires-python = ">=3.12"
 dependencies = [
+    "aiofiles>=25.1.0",
     "fastapi>=0.138.0",
     "h5py>=3.16.0",
     "ipykernel>=7.3.0",

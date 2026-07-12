@@ -103,5 +103,6 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 30px; /* matching h-48 */
+  z-index: 10;
 }
 </style>

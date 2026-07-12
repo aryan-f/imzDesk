@@ -10,12 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 @router.get('/health')
-def health():
+async def health():
     return {'ok': True}
 
 
 @router.get('/infra')
-def infra(request: Request):
+async def infra(request: Request):
     return {'workspace': request.app.state.settings.workspace}
 
 
