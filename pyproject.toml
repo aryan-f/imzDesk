@@ -6,7 +6,6 @@ dependencies = [
     "aiofiles>=25.1.0",
     "fastapi>=0.138.0",
     "h5py>=3.16.0",
-    "ipykernel>=7.3.0",
     "lxml>=6.1.1",
     "matplotlib>=3.11.0",
     "numpy>=2.4.6",

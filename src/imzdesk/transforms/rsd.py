@@ -2,9 +2,7 @@ import copy
 
 import numpy as np
 from scipy import sparse
-from sklearn.decomposition import NMF as SklearnNMF
-from sklearn.decomposition import PCA as SklearnPCA
-from sklearn.manifold import TSNE as SklearnTSNE
+from sklearn import decomposition, manifold
 
 from imzdesk.core import DImage, RImage, SImage
 from imzdesk.transforms.base import Transform
@@ -35,6 +33,7 @@ class Compose(Transform):
 
 
 class Normalize(Transform):
+
     def __init__(self, method: str | None = 'tic'):
         """
         Normalize sparse pixel values.
@@ -83,6 +82,7 @@ class Normalize(Transform):
 
 
 class Bin(Transform):
+
     def __init__(self, minimum_channel: float = 50.0, maximum_channel: float = 1000.0, bin_width: float = 2.0):
         """
         Bin ragged sparse pixels into rectangular sparse features.
@@ -154,20 +154,7 @@ class ToDense(Transform):
         )
 
 
-class Reduce(Transform):
-    """
-    Base callable for reducing images to dense pixel values.
-
-    Notes
-    -----
-    Subclasses return a ``DImage``.
-    """
-
-    def __call__(self, image: RImage | SImage | DImage) -> DImage:
-        raise NotImplementedError
-
-
-class TIC(Reduce):
+class TIC(Transform):
     """
     Sum each pixel's feature vector into one intensity value.
     """
@@ -179,7 +166,8 @@ class TIC(Reduce):
         )
 
 
-class PCA(Reduce):
+class PCA(Transform):
+
     def __init__(self, number_of_components: int = 3, random_seed: int = 0):
         """
         Reduce dense images with principal component analysis.
@@ -202,7 +190,7 @@ class PCA(Reduce):
         self.random_seed = random_seed
 
     def __call__(self, dense_image: DImage) -> DImage:
-        values = SklearnPCA(
+        values = decomposition.PCA(
             n_components=self.number_of_components,
             svd_solver='randomized',
             random_state=self.random_seed,
@@ -210,7 +198,8 @@ class PCA(Reduce):
         return DImage(values=values, coordinates=dense_image.coordinates.copy())
 
 
-class NMF(Reduce):
+class NMF(Transform):
+
     def __init__(self, number_of_components: int = 3, random_seed: int = 0):
         """
         Reduce sparse or dense images with non-negative matrix factorization.
@@ -233,7 +222,7 @@ class NMF(Reduce):
         self.random_seed = random_seed
 
     def __call__(self, image: SImage | DImage) -> DImage:
-        values = SklearnNMF(
+        values = decomposition.NMF(
             n_components=self.number_of_components,
             init='nndsvda',
             max_iter=300,
@@ -242,7 +231,8 @@ class NMF(Reduce):
         return DImage(values=values, coordinates=image.coordinates.copy())
 
 
-class TSNE(Reduce):
+class TSNE(Transform):
+
     def __init__(self, number_of_components: int = 3, random_seed: int = 0):
         """
         Reduce dense images with t-SNE after PCA preprojection.
@@ -265,8 +255,10 @@ class TSNE(Reduce):
         self.random_seed = random_seed
 
     def __call__(self, dense_image: DImage) -> DImage:
-        pca_projection = SklearnPCA(n_components=32, random_state=self.random_seed).fit_transform(dense_image.values)
-        values = SklearnTSNE(
+        pca_projection = decomposition.PCA(
+            n_components=32, random_state=self.random_seed
+        ).fit_transform(dense_image.values)
+        values = manifold.TSNE(
             n_components=self.number_of_components,
             init='pca',
             learning_rate='auto',
