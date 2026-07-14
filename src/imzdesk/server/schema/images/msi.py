@@ -36,4 +36,7 @@ class MSIImageRequest(BaseModel):
 class MSIRegistrationRequest(BaseModel):
     filepath: str
     reference: str
-    force_refresh: bool = False
+
+
+class MSIRegistrationTransformRequest(MSIRegistrationRequest):
+    transform: list[list[float]]

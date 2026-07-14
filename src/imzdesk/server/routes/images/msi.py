@@ -8,8 +8,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse
 
 import imzdesk.transforms as T
+import imzdesk.registration as R
 from imzdesk.io import MSI
-from imzdesk.registration import register
 from imzdesk.server.schema.images import msi as schema
 from imzdesk.server.utils.caching import cache_path
 from imzdesk.server.utils.executor import threaded
@@ -109,48 +109,43 @@ def image_response(image_path: pathlib.Path):
     )
 
 
-@router.post('/registered')
-async def registered(request: Request, settings: schema.MSIRegistrationRequest):
+@router.get('/registered')
+async def registered(request: Request, filepath: str, reference: str):
     workspace = request.app.state.settings.workspace
-    filepath = await resolve_path(workspace, settings.filepath)
-    reference = await resolve_path(workspace, settings.reference)
-    return await registered_impl(request, filepath, reference, settings)
+    filepath = await resolve_path(workspace, filepath)
+    reference = await resolve_path(workspace, reference)
+    return await registered_impl(request, filepath, reference)
 
 
 @threaded
-def registered_impl(filepath: pathlib.Path, reference: pathlib.Path, settings: schema.MSIRegistrationRequest):
-    msi = get_msi_instance(filepath)
-    wsi = get_wsi_instance(reference)
-
-    transform_path = registration_transform_path(msi, reference)
-    if transform_path.exists() and not settings.force_refresh:
-        return True
-
-    transform = register(wsi, msi)
-    np.save(transform_path, transform.matrix, allow_pickle=False)
-
-    return True
-
-
-@router.post('/registered/check')
-async def registered_check(request: Request, settings: schema.MSIRegistrationRequest):
-    workspace = request.app.state.settings.workspace
-    filepath = await resolve_path(workspace, settings.filepath)
-    reference = await resolve_path(workspace, settings.reference)
-    return await registered_check_impl(request, filepath, reference)
-
-
-@threaded
-def registered_check_impl(filepath: pathlib.Path, reference: pathlib.Path):
+def registered_impl(filepath: pathlib.Path, reference: pathlib.Path):
     msi = get_msi_instance(filepath)
     return registration_transform_path(msi, reference).exists()
 
 
-@router.post('/registered/transform')
-async def registered_transform(request: Request, settings: schema.MSIRegistrationRequest):
+@router.post('/register')
+async def register(request: Request, settings: schema.MSIRegistrationRequest):
     workspace = request.app.state.settings.workspace
     filepath = await resolve_path(workspace, settings.filepath)
     reference = await resolve_path(workspace, settings.reference)
+    return await register_impl(request, filepath, reference)
+
+
+@threaded
+def register_impl(filepath: pathlib.Path, reference: pathlib.Path):
+    msi = get_msi_instance(filepath)
+    wsi = get_wsi_instance(reference)
+    transform_path = registration_transform_path(msi, reference)
+    transform = R.register(wsi, msi)
+    np.save(transform_path, transform.matrix, allow_pickle=False)
+    return True
+
+
+@router.get('/registered/transform')
+async def registered_transform(request: Request, filepath: str, reference: str):
+    workspace = request.app.state.settings.workspace
+    filepath = await resolve_path(workspace, filepath)
+    reference = await resolve_path(workspace, reference)
     return await registered_transform_impl(request, filepath, reference)
 
 
@@ -161,6 +156,22 @@ def registered_transform_impl(filepath: pathlib.Path, reference: pathlib.Path):
     if not transform_path.exists():
         return None
     return np.load(transform_path, allow_pickle=False).tolist()
+
+
+@router.put('/registered/transform')
+async def put_registered_transform(request: Request, settings: schema.MSIRegistrationTransformRequest):
+    workspace = request.app.state.settings.workspace
+    filepath = await resolve_path(workspace, settings.filepath)
+    reference = await resolve_path(workspace, settings.reference)
+    return await put_registered_transform_impl(request, filepath, reference, settings.transform)
+
+
+@threaded
+def put_registered_transform_impl(filepath: pathlib.Path, reference: pathlib.Path, transform: list[list[float]]):
+    msi = get_msi_instance(filepath)
+    transform_path = registration_transform_path(msi, reference)
+    np.save(transform_path, np.asarray(transform, dtype=np.float64), allow_pickle=False)
+    return True
 
 
 def registration_transform_path(msi: MSI, reference: pathlib.Path):

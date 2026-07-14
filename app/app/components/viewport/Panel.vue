@@ -182,7 +182,7 @@ async function loadMsiMetadata() {
   })
 }
 
-function registrationRequestBody() {
+function registrationRequestParams() {
   if (!msiFilepath.value || !fixedWsiFilepath.value) return null
   return {
     filepath: msiFilepath.value,
@@ -191,29 +191,27 @@ function registrationRequestBody() {
 }
 
 async function checkRegistration() {
-  const body = registrationRequestBody()
-  if (!body) {
+  const query = registrationRequestParams()
+  if (!query) {
     emit('update:registered', false)
     registrationMatrix.value = null
     return
   }
-  const registered = await $fetch<boolean>('/api/images/msi/registered/check', {
-    method: 'POST',
-    body,
+  const registered = await $fetch<boolean>('/api/images/msi/registered', {
+    query,
   })
   emit('update:registered', registered)
   if (!registered) registrationMatrix.value = null
 }
 
 async function loadRegistrationMatrix() {
-  const body = registrationRequestBody()
-  if (!body || !props.registered) {
+  const query = registrationRequestParams()
+  if (!query || !props.registered) {
     registrationMatrix.value = null
     return null
   }
   registrationMatrix.value = await $fetch<number[][] | null>('/api/images/msi/registered/transform', {
-    method: 'POST',
-    body,
+    query,
   })
   return registrationMatrix.value
 }
@@ -461,12 +459,11 @@ async function registerMsi() {
   if (!msiFilepath.value || !fixedWsiFilepath.value) return
   registering.value = true
   try {
-    const registered = await $fetch<boolean>('/api/images/msi/registered', {
+    const registered = await $fetch<boolean>('/api/images/msi/register', {
       method: 'POST',
       body: {
         filepath: msiFilepath.value,
         reference: fixedWsiFilepath.value,
-        force_refresh: false,
       },
     })
     emit('update:registered', registered)
@@ -641,7 +638,7 @@ function closeAll() {
           </UTooltip>
           <UTooltip v-if="showMsi" text="Register" :delay-duration="250">
             <UButton
-              icon="i-lucide-scan-line"
+              icon="mdi-resize"
               :color="registered ? 'secondary' : 'neutral'"
               :disabled="!canRegister || registering"
               :loading="registering"
@@ -653,7 +650,7 @@ function closeAll() {
           </UTooltip>
           <UTooltip v-if="showMsi" :text="overlay ? 'Show separately' : 'Overlay'" :delay-duration="250">
             <UButton
-              icon="i-lucide-layers"
+              icon="carbon-overlay"
               :color="overlay ? 'secondary' : 'neutral'"
               :disabled="!canOverlay"
               :variant="overlay ? 'soft' : 'ghost'"
