@@ -313,13 +313,16 @@ function applyMsiLayerTransform() {
   const xScale = msiMeta.value.mpp.x / wsiMeta.value.mpp.x
   const yScale = msiMeta.value.mpp.y / wsiMeta.value.mpp.y
   const a = (row0[0] ?? 1) * xScale
+  const b = (row0[1] ?? 0) * xScale
   const c = (row0[2] ?? 0) * xScale
   const d = (row1[0] ?? 0) * yScale
+  const e = (row1[1] ?? 1) * yScale
   const f = (row1[2] ?? 0) * yScale
   const origin = wsiImageLayer.imageToViewportCoordinates(new osd.Point(c, f))
   const xAxis = wsiImageLayer.imageToViewportCoordinates(new osd.Point(c + a, f + d))
+  const yAxis = wsiImageLayer.imageToViewportCoordinates(new osd.Point(c + b, f + e))
   const width = Math.hypot(xAxis.x - origin.x, xAxis.y - origin.y) * msiImageLayer.getContentSize().x
-  const height = width * (msiImageLayer.getContentSize().y / msiImageLayer.getContentSize().x)
+  const height = Math.hypot(yAxis.x - origin.x, yAxis.y - origin.y) * msiImageLayer.getContentSize().y
   const angle = Math.atan2(d, a) * 180 / Math.PI
   const angleRadians = angle * Math.PI / 180
   const halfWidth = width / 2
