@@ -518,9 +518,9 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreenState)
 })
 
-watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], () => {
+watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], ([wsi, msi], [previousWsi, previousMsi]) => {
   destroy()
-  cropEnabled.value = false
+  if (wsi !== previousWsi || msi !== previousMsi) cropEnabled.value = true
   init()
 })
 
