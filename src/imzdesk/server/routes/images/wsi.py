@@ -15,9 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 # Keep an LRU cache for consecutive file access.
-@threaded
 @functools.lru_cache(maxsize=4)
-def get_wsi_instance(filepath: pathlib.Path):
+def get_wsi_instance(filepath: pathlib.Path | str):
     return WSI(filepath)
 
 
@@ -25,7 +24,12 @@ def get_wsi_instance(filepath: pathlib.Path):
 async def metadata(request: Request, filepath: str) -> WSI.metadata_class:
     workspace = request.app.state.settings.workspace
     filepath = await resolve_path(workspace, filepath)
-    wsi = await get_wsi_instance(request, filepath)
+    return await metadata_impl(request, filepath)
+
+
+@threaded
+def metadata_impl(filepath: pathlib.Path):
+    wsi = get_wsi_instance(filepath)
     return wsi.metadata
 
 
@@ -33,12 +37,12 @@ async def metadata(request: Request, filepath: str) -> WSI.metadata_class:
 async def tile(request: Request, filepath: str, level: int, row: int, column: int):
     workspace = request.app.state.settings.workspace
     filepath = await resolve_path(workspace, filepath)
-    wsi = await get_wsi_instance(request, filepath)
-    return await tile_impl(request, wsi, level, row, column)
+    return await tile_impl(request, filepath, level, row, column)
 
 
 @threaded
-def tile_impl(wsi: WSI, level: int, row: int, column: int):
+def tile_impl(filepath: pathlib.Path, level: int, row: int, column: int):
+    wsi = get_wsi_instance(filepath)
     im = wsi.get_tile(level, row, column)
     buffer = io.BytesIO()
     im.save(buffer, format='PNG')

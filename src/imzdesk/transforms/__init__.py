@@ -1,5 +1,5 @@
 from .base import Transform
+from .generic import ToImage
 from .msi import ToRImage, Embed
-from .rgb import OpticalDensity
-from .rsd import Bin, Compose, NMF, PCA, TSNE, TIC, Normalize, ToDense
-from .wsi import ToImage
+from .rgb import OpticalDensity, Threshold
+from .rsd import Bin, Compose, NMF, PCA, Project, TSNE, TIC, Normalize, ToDense

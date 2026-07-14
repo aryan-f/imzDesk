@@ -267,3 +267,59 @@ class TSNE(Transform):
             random_state=self.random_seed,
         ).fit_transform(pca_projection)
         return DImage(values=values, coordinates=dense_image.coordinates.copy())
+
+
+class Project(Transform):
+
+    def __init__(self, number_of_components: int = 8, tissue_fraction: float = 0.1, background_fraction: float = 0.1):
+        """
+        Project dense features onto a tissue/background direction.
+
+        Parameters
+        ----------
+        number_of_components:
+            Number of leading PCA components used to identify high-energy
+            tissue seeds.
+        tissue_fraction:
+            Fraction of pixels used as tissue seeds.
+        background_fraction:
+            Corner fraction used as background seeds.
+
+        Attributes
+        ----------
+        number_of_components: int
+            Number of leading PCA components.
+        tissue_fraction: float
+            Fraction of pixels used as tissue seeds.
+        background_fraction: float
+            Corner fraction used as background seeds.
+        """
+        self.number_of_components = number_of_components
+        self.tissue_fraction = tissue_fraction
+        self.background_fraction = background_fraction
+
+    def __call__(self, image: DImage) -> DImage:
+        values = np.asarray(image.values, dtype=np.float32)
+        number_of_components = min(self.number_of_components, values.shape[1], len(values))
+        projected = decomposition.PCA(n_components=number_of_components, random_state=0).fit_transform(values)
+        energy = np.linalg.norm(projected, axis=1)
+        tissue_count = max(1, round(len(values) * self.tissue_fraction))
+        tissue_indices = np.argsort(energy)[-tissue_count:]
+        coordinates = image.coordinates
+        x_limit = coordinates[:, 0].min() + (coordinates[:, 0].max() - coordinates[:, 0].min()) * self.background_fraction
+        y_limit = coordinates[:, 1].min() + (coordinates[:, 1].max() - coordinates[:, 1].min()) * self.background_fraction
+        background_indices = np.flatnonzero((coordinates[:, 0] <= x_limit) & (coordinates[:, 1] <= y_limit))
+        if background_indices.size == 0:
+            background_count = max(1, round(len(values) * self.tissue_fraction))
+            background_indices = np.argsort(energy)[:background_count]
+        direction = values[tissue_indices].mean(axis=0) - values[background_indices].mean(axis=0)
+        direction_norm = np.linalg.norm(direction)
+        if direction_norm > 0:
+            direction = direction / direction_norm
+        scores = values @ direction
+        if scores[background_indices].mean() > scores[tissue_indices].mean():
+            scores = -scores
+        scores = scores - scores.min()
+        if scores.max() > 0:
+            scores = scores / scores.max()
+        return DImage(scores, image.coordinates.copy())

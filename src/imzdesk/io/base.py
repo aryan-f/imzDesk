@@ -27,10 +27,10 @@ class ImageBase(abc.ABC):
         try:
             self.metadata = self.metadata_class.from_file(self.metadata_path)
         except FileNotFoundError:
-            self.metadata = self.initialize_metadata()
+            self.metadata = self.init_metadata()
 
     @abc.abstractmethod
-    def initialize_metadata(self) -> Metadata:
+    def init_metadata(self) -> Metadata:
         """
         Called when no metadata file is found.
 
@@ -41,7 +41,7 @@ class ImageBase(abc.ABC):
         """
         pass
 
-    def write_metadata_to_disk(self):
+    def dump_metadata(self):
         self.metadata.to_file(self.metadata_path)
 
     def derived_path(self, suffix: str) -> pathlib.Path:

@@ -134,3 +134,32 @@ class DImage:
         """
         self.values = np.asarray(values)
         self.coordinates = np.asarray(coordinates)
+
+    def to_image(self, target_mpp: float | tuple[float, float] | None = None, shape: tuple[int, int] | None = None, crop: bool = True):
+        """
+        Rasterize dense pixel values into a numpy image.
+
+        Parameters
+        ----------
+        target_mpp:
+            Accepted for API symmetry with image file classes.
+        shape:
+            Optional ``(height, width)`` output shape.
+        crop:
+            Accepted for API symmetry with image file classes.
+
+        Returns
+        -------
+        image: np.ndarray
+            Rasterized image with shape ``(height, width)`` or
+            ``(height, width, channels)``.
+        """
+        coordinates = self.coordinates.astype(np.int64)
+        height, width = shape or (coordinates[:, 1].max() + 1, coordinates[:, 0].max() + 1)
+        if self.values.ndim == 1:
+            image = np.zeros((height, width), dtype=self.values.dtype)
+            image[coordinates[:, 1], coordinates[:, 0]] = self.values
+            return image
+        image = np.zeros((height, width, self.values.shape[1]), dtype=self.values.dtype)
+        image[coordinates[:, 1], coordinates[:, 0]] = self.values
+        return image

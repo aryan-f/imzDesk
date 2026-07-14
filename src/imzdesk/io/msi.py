@@ -58,7 +58,7 @@ class MSI(ImageBase):
 
         self.resolve_metadata()
 
-    def initialize_metadata(self):
+    def init_metadata(self):
         # Even though ``ImzMLParser.imzmldict`` contains these properties, the library discards the units which could
         # cause serious problems. We'll have to parse it again to extract the relevant accessions.
         (width, none), (height, none), (x, xu), (y, yu) = get_cvparams_by_accession(
@@ -105,7 +105,6 @@ class MSI(ImageBase):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.write_metadata_to_disk()
         self.ibd_file.close()
 
     def __len__(self):

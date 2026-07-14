@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import Image
+from skimage.filters import threshold_otsu
 
 from imzdesk.transforms.base import Transform
 
@@ -8,7 +8,7 @@ class OpticalDensity(Transform):
 
     def __init__(self, white_level: float = 255.0):
         """
-        Convert an RGB Pillow image to an optical-density grayscale image.
+        Convert an RGB image array to normalized optical density.
 
         Parameters
         ----------
@@ -22,9 +22,35 @@ class OpticalDensity(Transform):
         """
         self.white_level = white_level
 
-    def __call__(self, image: Image.Image) -> Image.Image:
-        pixels = np.asarray(image.convert('RGB'), dtype=np.float32)
+    def __call__(self, image) -> np.ndarray:
+        pixels = np.asarray(image, dtype=np.float32)
         density = -np.log((pixels + 1.0) / (self.white_level + 1.0))
-        density = density.mean(axis=2)
+        if density.ndim == 3:
+            density = density.mean(axis=2)
         density = density / density.max() if density.max() > 0 else density
-        return Image.fromarray((density * 255).astype(np.uint8), mode='L')
+        return density.astype(np.float32)
+
+
+class Threshold(Transform):
+
+    def __init__(self, fallback_percentile: float = 75.0):
+        """
+        Threshold a scalar image into a boolean mask.
+
+        Parameters
+        ----------
+        fallback_percentile:
+            Percentile used when Otsu returns a degenerate mask.
+        """
+        self.fallback_percentile = fallback_percentile
+
+    def __call__(self, image) -> np.ndarray:
+        values = np.asarray(image, dtype=np.float32)
+        if values.ndim == 3:
+            values = values.mean(axis=2)
+        threshold = threshold_otsu(values)
+        mask = values > threshold
+        foreground_fraction = mask.mean()
+        if foreground_fraction <= 0.01 or foreground_fraction >= 0.99:
+            mask = values > np.percentile(values, self.fallback_percentile)
+        return mask

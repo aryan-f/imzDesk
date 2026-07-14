@@ -3,25 +3,27 @@ import logging
 import pathlib
 from typing import List
 
+import numpy as np
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse
 
 import imzdesk.transforms as T
 from imzdesk.io import MSI
+from imzdesk.registration import register
 from imzdesk.server.schema.images import msi as schema
 from imzdesk.server.utils.caching import cache_path
 from imzdesk.server.utils.executor import threaded
 from imzdesk.server.utils.filesystem import resolve_path
 from imzdesk.visualization import DImageDisplay
+from .wsi import get_wsi_instance
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 # Keep an LRU cache for consecutive file access.
-@threaded
 @functools.lru_cache(maxsize=4)
-def get_msi_instance(filepath: pathlib.Path):
+def get_msi_instance(filepath: pathlib.Path | str):
     return MSI(filepath, cache_portable=False)
 
 
@@ -29,24 +31,29 @@ def get_msi_instance(filepath: pathlib.Path):
 async def metadata(request: Request, filepath: str) -> MSI.metadata_class:
     workspace = request.app.state.settings.workspace
     filepath = await resolve_path(workspace, filepath)
-    wsi = await get_msi_instance(request, filepath)
-    return wsi.metadata
+    return await metadata_impl(request, filepath)
+
+
+@threaded
+def metadata_impl(filepath: pathlib.Path):
+    msi = get_msi_instance(filepath)
+    return msi.metadata
 
 
 @router.post('/image')
 async def image(request: Request, settings: schema.MSIImageRequest):
     workspace = request.app.state.settings.workspace
     filepath = await resolve_path(workspace, settings.filepath)
-    msi = await get_msi_instance(request, filepath)
-    return await image_impl(request, msi, settings)
+    return await image_impl(request, filepath, settings)
 
 
 @threaded
-def image_impl(msi: MSI, settings: schema.MSIImageRequest):
+def image_impl(filepath: pathlib.Path, settings: schema.MSIImageRequest):
+    msi = get_msi_instance(filepath)
+
     image_path = cache_path(msi, key=settings, suffix='.png')
 
     if image_path.exists():
-        print('Responding from', image_path)
         return FileResponse(path=image_path, media_type='image/png', filename=image_path.name)
 
     transforms: List[T.Transform] = [
@@ -89,9 +96,59 @@ def image_impl(msi: MSI, settings: schema.MSIImageRequest):
     return FileResponse(path=image_path, media_type='image/png', filename=image_path.name)
 
 
-@router.post('/register')
-async def register(request: Request, settings: schema.MSIRegistrationRequest) -> schema.MSIRegistrationResponse:
+@router.post('/registered')
+async def registered(request: Request, settings: schema.MSIRegistrationRequest):
     workspace = request.app.state.settings.workspace
-    await resolve_path(workspace, settings.filepath)
-    await resolve_path(workspace, settings.fixed_filepath)
-    return schema.MSIRegistrationResponse()
+    filepath = await resolve_path(workspace, settings.filepath)
+    reference = await resolve_path(workspace, settings.reference)
+    return await registered_impl(request, filepath, reference, settings)
+
+
+@threaded
+def registered_impl(filepath: pathlib.Path, reference: pathlib.Path, settings: schema.MSIRegistrationRequest):
+    msi = get_msi_instance(filepath)
+    wsi = get_wsi_instance(reference)
+
+    transform_path = registration_transform_path(msi, reference)
+    if transform_path.exists() and not settings.force_refresh:
+        return True
+
+    transform = register(wsi, msi)
+    np.save(transform_path, transform.matrix, allow_pickle=False)
+
+    return True
+
+
+@router.post('/registered/check')
+async def registered_check(request: Request, settings: schema.MSIRegistrationRequest):
+    workspace = request.app.state.settings.workspace
+    filepath = await resolve_path(workspace, settings.filepath)
+    reference = await resolve_path(workspace, settings.reference)
+    return await registered_check_impl(request, filepath, reference)
+
+
+@threaded
+def registered_check_impl(filepath: pathlib.Path, reference: pathlib.Path):
+    msi = get_msi_instance(filepath)
+    return registration_transform_path(msi, reference).exists()
+
+
+@router.post('/registered/transform')
+async def registered_transform(request: Request, settings: schema.MSIRegistrationRequest):
+    workspace = request.app.state.settings.workspace
+    filepath = await resolve_path(workspace, settings.filepath)
+    reference = await resolve_path(workspace, settings.reference)
+    return await registered_transform_impl(request, filepath, reference)
+
+
+@threaded
+def registered_transform_impl(filepath: pathlib.Path, reference: pathlib.Path):
+    msi = get_msi_instance(filepath)
+    transform_path = registration_transform_path(msi, reference)
+    if not transform_path.exists():
+        return None
+    return np.load(transform_path, allow_pickle=False).tolist()
+
+
+def registration_transform_path(msi: MSI, reference: pathlib.Path):
+    return cache_path(msi, suffix=f'.{reference.name}.transform.npy')

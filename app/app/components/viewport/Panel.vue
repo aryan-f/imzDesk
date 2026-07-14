@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type OpenSeadragon from 'openseadragon'
-import { type TileSource } from 'openseadragon'
+import type { TileSource } from 'openseadragon'
 import type { MSIDisplay, MSIMetadata, WSIMetadata } from '~/types/images'
 
 const { state, setActive, closeFile } = useWorkspace()
@@ -45,6 +45,9 @@ const activeAnnotationTool = ref('Select')
 const isFullscreen = ref(false)
 const msiImageUrl = ref<string | null>(null)
 const msiRendering = ref(false)
+const msiOpacity = ref(0.65)
+const registrationMatrix = ref<number[][] | null>(null)
+const registering = ref(false)
 
 const viewerEl = ref<HTMLElement | null>(null)
 const viewportEl = ref<HTMLElement | null>(null)
@@ -179,6 +182,42 @@ async function loadMsiMetadata() {
   })
 }
 
+function registrationRequestBody() {
+  if (!msiFilepath.value || !fixedWsiFilepath.value) return null
+  return {
+    filepath: msiFilepath.value,
+    reference: fixedWsiFilepath.value,
+  }
+}
+
+async function checkRegistration() {
+  const body = registrationRequestBody()
+  if (!body) {
+    emit('update:registered', false)
+    registrationMatrix.value = null
+    return
+  }
+  const registered = await $fetch<boolean>('/api/images/msi/registered/check', {
+    method: 'POST',
+    body,
+  })
+  emit('update:registered', registered)
+  if (!registered) registrationMatrix.value = null
+}
+
+async function loadRegistrationMatrix() {
+  const body = registrationRequestBody()
+  if (!body || !props.registered) {
+    registrationMatrix.value = null
+    return null
+  }
+  registrationMatrix.value = await $fetch<number[][] | null>('/api/images/msi/registered/transform', {
+    method: 'POST',
+    body,
+  })
+  return registrationMatrix.value
+}
+
 function fitToCrop(immediately = false) {
   if (!viewer || !osd || !cropRect.value) return
   const item = viewer.world.getItemAt(0)
@@ -255,6 +294,7 @@ function displayMsiImage(url: string) {
     index: showWsi.value ? 1 : currentViewer.world.getItemCount(),
     success: (event) => {
       msiImageLayer = (event as unknown as { item: OpenSeadragon.TiledImage }).item
+      applyMsiLayerTransform()
       if (!showWsi.value) {
         viewerReady.value = true
         currentViewer.viewport.goHome(true)
@@ -263,10 +303,48 @@ function displayMsiImage(url: string) {
   })
 }
 
+function applyMsiLayerTransform() {
+  if (!viewer || !osd || !msiImageLayer) return
+  msiImageLayer.setOpacity(overlaid.value ? msiOpacity.value : 1)
+  if (!overlaid.value || !registrationMatrix.value || !wsiImageLayer || !wsiMeta.value || !msiMeta.value?.mpp) return
+
+  const matrix = registrationMatrix.value
+  const row0 = matrix[0]
+  const row1 = matrix[1]
+  if (!row0 || !row1) return
+  const xScale = msiMeta.value.mpp.x / wsiMeta.value.mpp.x
+  const yScale = msiMeta.value.mpp.y / wsiMeta.value.mpp.y
+  const a = (row0[0] ?? 1) * xScale
+  const c = (row0[2] ?? 0) * xScale
+  const d = (row1[0] ?? 0) * yScale
+  const f = (row1[2] ?? 0) * yScale
+  const origin = wsiImageLayer.imageToViewportCoordinates(new osd.Point(c, f))
+  const xAxis = wsiImageLayer.imageToViewportCoordinates(new osd.Point(c + a, f + d))
+  const width = Math.hypot(xAxis.x - origin.x, xAxis.y - origin.y) * msiImageLayer.getContentSize().x
+  const height = width * (msiImageLayer.getContentSize().y / msiImageLayer.getContentSize().x)
+  const angle = Math.atan2(d, a) * 180 / Math.PI
+  const angleRadians = angle * Math.PI / 180
+  const halfWidth = width / 2
+  const halfHeight = height / 2
+  const rotatedHalf = new osd.Point(
+    halfWidth * Math.cos(angleRadians) - halfHeight * Math.sin(angleRadians),
+    halfWidth * Math.sin(angleRadians) + halfHeight * Math.cos(angleRadians),
+  )
+  const position = new osd.Point(
+    origin.x - halfWidth + rotatedHalf.x,
+    origin.y - halfHeight + rotatedHalf.y,
+  )
+
+  msiImageLayer.setPosition(position, true)
+  msiImageLayer.setWidth(width, true)
+  msiImageLayer.setRotation(angle, true)
+}
+
 async function renderMsiImage() {
   if (!msiFilepath.value) return
 
   msiRendering.value = true
+  if (overlaid.value) await loadRegistrationMatrix()
   const response = await $fetch<Blob>('/api/images/msi/image', {
     method: 'POST',
     body: {
@@ -310,12 +388,13 @@ function cancelMsiImageRender() {
   }
 }
 
-function initMsiLayer() {
+async function initMsiLayer() {
   if (!msiFilepath.value) {
     destroyMsiLayer()
     return
   }
-  loadMsiMetadata()
+  await loadMsiMetadata()
+  await checkRegistration()
   queueMsiImageRender()
 }
 
@@ -323,6 +402,7 @@ function destroyMsiLayer() {
   cancelMsiImageRender()
   releaseMsiImage()
   msiMeta.value = null
+  registrationMatrix.value = null
 }
 
 function applyMsiDisplay(display: MSIDisplay) {
@@ -345,7 +425,7 @@ async function init() {
     })
 
     await initWsiLayer()
-    initMsiLayer()
+    await initMsiLayer()
   } catch {
     wsiLoading.value = false
   }
@@ -379,14 +459,20 @@ function toggleOverlay() {
 
 async function registerMsi() {
   if (!msiFilepath.value || !fixedWsiFilepath.value) return
-  const response = await $fetch<{ registered: boolean }>('/api/images/msi/register', {
-    method: 'POST',
-    body: {
-      filepath: msiFilepath.value,
-      fixed_filepath: fixedWsiFilepath.value,
-    },
-  })
-  emit('update:registered', response.registered)
+  registering.value = true
+  try {
+    const registered = await $fetch<boolean>('/api/images/msi/registered', {
+      method: 'POST',
+      body: {
+        filepath: msiFilepath.value,
+        reference: fixedWsiFilepath.value,
+        force_refresh: false,
+      },
+    })
+    emit('update:registered', registered)
+  } finally {
+    registering.value = false
+  }
 }
 
 function zoomBy(factor: number) {
@@ -436,6 +522,10 @@ watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], () => {
   destroy()
   cropEnabled.value = false
   init()
+})
+
+watch(msiOpacity, () => {
+  applyMsiLayerTransform()
 })
 
 function closeAll() {
@@ -553,7 +643,8 @@ function closeAll() {
             <UButton
               icon="i-lucide-scan-line"
               :color="registered ? 'secondary' : 'neutral'"
-              :disabled="!canRegister"
+              :disabled="!canRegister || registering"
+              :loading="registering"
               :variant="registered ? 'soft' : 'ghost'"
               size="sm"
               square
@@ -571,6 +662,10 @@ function closeAll() {
               @click="toggleOverlay"
             />
           </UTooltip>
+          <div v-if="overlaid" class="flex w-28 items-center gap-2 px-1">
+            <UIcon name="i-lucide-blend" class="size-4 text-dimmed" />
+            <USlider v-model="msiOpacity" :min="0" :max="1" :step="0.05" color="secondary" />
+          </div>
         </div>
       </div>
       <UIcon

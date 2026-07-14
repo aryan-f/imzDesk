@@ -35,10 +35,5 @@ class MSIImageRequest(BaseModel):
 
 class MSIRegistrationRequest(BaseModel):
     filepath: str
-    fixed_filepath: str
-
-
-class MSIRegistrationResponse(BaseModel):
-    registered: bool = True
-    cached: bool = True
-    transform: list[float] = Field(default_factory=lambda: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+    reference: str
+    force_refresh: bool = False
