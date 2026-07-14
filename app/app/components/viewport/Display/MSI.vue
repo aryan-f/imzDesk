@@ -28,11 +28,6 @@ const normalizationOptions = [
   { label: 'Max', value: 'max' },
 ]
 
-const centroidingOptions = [
-  { label: 'None', value: 'none' },
-  { label: 'PeakPickerHiRes', value: 'peak_picker_hi_res' },
-]
-
 const cubingOptions = [
   { label: 'Binning', value: 'bin' },
   { label: 'Embeddings', value: 'embed' },
@@ -53,7 +48,7 @@ const reductionOptions = [
 
 const availableReductionOptions = computed(() => reductionOptions.map(option => ({
   ...option,
-  disabled: option.value === 'tic' && draft.cubing.method !== 'bin',
+  disabled: draft.cubing.method !== 'bin' && ['tic', 'nmf'].includes(option.value),
 })))
 
 const selectedReduction = computed(() => (
@@ -86,6 +81,18 @@ const selectedColormap = computed(() => (
   colormapOptions.find(option => option.value === draft.reduction.colormap) ?? defaultColormap
 ))
 
+const popoverUi = {
+  content: 'z-[1000]',
+}
+
+const selectUi = {
+  content: 'z-[1100]',
+}
+
+const colormapPopoverUi = {
+  content: 'z-[1100]',
+}
+
 watch(
   () => props.display,
   (value) => {
@@ -100,7 +107,7 @@ watch(
 watch(
   () => [draft.cubing.method, draft.reduction.method],
   () => {
-    if (draft.cubing.method !== 'bin' && draft.reduction.method === 'tic') {
+    if (draft.cubing.method !== 'bin' && ['tic', 'nmf'].includes(draft.reduction.method)) {
       draft.reduction.method = 'pca'
     }
     if (draft.reduction.method === 'tic') {
@@ -118,7 +125,7 @@ function apply() {
 </script>
 
 <template>
-  <UPopover>
+  <UPopover :ui="popoverUi">
     <div class="inline-flex items-center bg-default border border-default rounded-lg pl-2 pr-1.5 py-px cursor-pointer select-none">
       <span class="text-sm text-dimmed mr-1">mode</span>
       <span class="font-data text-base">{{ selectedReduction.label }}</span>
@@ -143,15 +150,10 @@ function apply() {
               <UIcon name="i-lucide-sliders-horizontal" class="size-3.5" />
               Preprocessing
             </div>
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 gap-2">
               <UFormField label="Normalization" size="sm">
-                <USelect v-model="draft.preprocessing.normalization" :items="normalizationOptions" class="w-full" />
+                <USelect v-model="draft.preprocessing.normalization" :items="normalizationOptions" :ui="selectUi" class="w-full" />
               </UFormField>
-              <UFormField label="Centroiding" size="sm">
-                <USelect v-model="draft.preprocessing.centroiding" :items="centroidingOptions" class="w-full" />
-              </UFormField>
-              <USwitch v-model="draft.preprocessing.baselineCorrection" label="Baseline correction" color="secondary" />
-              <USwitch v-model="draft.preprocessing.smoothing" label="Spectral smoothing" color="secondary" />
             </div>
           </section>
           <section class="space-y-2">
@@ -161,10 +163,10 @@ function apply() {
             </div>
             <div class="grid grid-cols-2 gap-2">
               <UFormField label="Method" size="sm">
-                <USelect v-model="draft.cubing.method" :items="cubingOptions" class="w-full" />
+                <USelect v-model="draft.cubing.method" :items="cubingOptions" :ui="selectUi" class="w-full" />
               </UFormField>
               <UFormField v-if="draft.cubing.method === 'embed'" label="Model" size="sm">
-                <USelect v-model="draft.cubing.model" :items="embeddingModelOptions" class="w-full" />
+                <USelect v-model="draft.cubing.model" :items="embeddingModelOptions" :ui="selectUi" class="w-full" />
               </UFormField>
               <UFormField v-else label="Bin width" size="sm">
                 <UInput v-model.number="draft.cubing.binWidth" type="number" min="0.001" step="0.001" class="w-full font-data" />
@@ -186,13 +188,13 @@ function apply() {
             </div>
             <div class="grid grid-cols-3 gap-2">
               <UFormField label="Method" size="sm">
-                <USelect v-model="draft.reduction.method" :items="availableReductionOptions" class="w-full" />
+                <USelect v-model="draft.reduction.method" :items="availableReductionOptions" :ui="selectUi" class="w-full" />
               </UFormField>
               <UFormField label="Scaling" size="sm">
-                <USelect v-model="draft.reduction.scaling" :items="scalingOptions" class="w-full" />
+                <USelect v-model="draft.reduction.scaling" :items="scalingOptions" :ui="selectUi" class="w-full" />
               </UFormField>
               <UFormField v-if="usesColormap" label="Colormap" size="sm">
-                <UPopover>
+                <UPopover :ui="colormapPopoverUi">
                   <UButton color="neutral" variant="outline" class="w-full justify-between">
                     <span class="flex min-w-0 items-center gap-2">
                       <span class="h-3 w-10 shrink-0 rounded-sm border border-default" :style="{ background: selectedColormap.gradient }" />
