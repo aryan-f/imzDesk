@@ -56,13 +56,12 @@ class MSI(ImageBase):
 
         self.ibd_file = None  # Lazy
 
-        self.resolve_metadata()
-
-    def init_metadata(self):
+    @classmethod
+    def init_metadata(cls, filepath: Path):
         # Even though ``ImzMLParser.imzmldict`` contains these properties, the library discards the units which could
         # cause serious problems. We'll have to parse it again to extract the relevant accessions.
         (width, none), (height, none), (x, xu), (y, yu) = get_cvparams_by_accession(
-            self.filepath,
+            filepath,
             'IMS:1000042',
             'IMS:1000043',
             'IMS:1000046',

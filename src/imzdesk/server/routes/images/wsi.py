@@ -29,8 +29,7 @@ async def metadata(request: Request, filepath: str) -> WSI.metadata_class:
 
 @threaded
 def metadata_impl(filepath: pathlib.Path):
-    wsi = get_wsi_instance(filepath)
-    return wsi.metadata
+    return WSI.read_metadata(filepath)
 
 
 @router.get('/tile')

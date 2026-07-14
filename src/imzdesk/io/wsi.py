@@ -34,20 +34,21 @@ class WSI(ImageBase):
         """
         super().__init__(filepath)
         self.slide = openslide.OpenSlide(self.filepath)
-        self.resolve_metadata()
 
-    def init_metadata(self):
-        width, height = self.slide.dimensions
-        return WSIMetadata(
-            width=width,
-            height=height,
-            mpp=metadata.Dimensions(
-                x=float(self.slide.properties[openslide.PROPERTY_NAME_MPP_X]),
-                y=float(self.slide.properties[openslide.PROPERTY_NAME_MPP_Y]),
-            ),
-            objective_power=float(self.slide.properties[openslide.PROPERTY_NAME_OBJECTIVE_POWER]),
-            vendor=self.slide.properties[openslide.PROPERTY_NAME_VENDOR],
-        )
+    @classmethod
+    def init_metadata(cls, filepath):
+        with openslide.OpenSlide(filepath) as slide:
+            width, height = slide.dimensions
+            return WSIMetadata(
+                width=width,
+                height=height,
+                mpp=metadata.Dimensions(
+                    x=float(slide.properties[openslide.PROPERTY_NAME_MPP_X]),
+                    y=float(slide.properties[openslide.PROPERTY_NAME_MPP_Y]),
+                ),
+                objective_power=float(slide.properties[openslide.PROPERTY_NAME_OBJECTIVE_POWER]),
+                vendor=slide.properties[openslide.PROPERTY_NAME_VENDOR],
+            )
 
     def __enter__(self):
         return self

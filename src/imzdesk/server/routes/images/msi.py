@@ -36,8 +36,7 @@ async def metadata(request: Request, filepath: str) -> MSI.metadata_class:
 
 @threaded
 def metadata_impl(filepath: pathlib.Path):
-    msi = get_msi_instance(filepath)
-    return msi.metadata
+    return MSI.read_metadata(filepath)
 
 
 @router.post('/image')

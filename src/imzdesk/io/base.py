@@ -19,20 +19,42 @@ class ImageBase(abc.ABC):
             The path to the image file.
         """
         self.filepath = pathlib.Path(filepath)
-        self.metadata_path = None
-        self.metadata = None
+        self._metadata = None
 
-    def resolve_metadata(self):
-        self.metadata_path = self.derived_path('.meta.yaml')
+    @property
+    def metadata(self):
+        if self._metadata is None:
+            self._metadata = self.read_metadata(self.filepath)
+        return self._metadata
+
+    @metadata.setter
+    def metadata(self, value):
+        self._metadata = value
+
+    @property
+    def metadata_path(self) -> pathlib.Path:
+        return self.derived_path('.meta.yaml')
+
+    @classmethod
+    def read_metadata(cls, filepath):
+        metadata_path = cls.derived_path_for(filepath, '.meta.yaml')
         try:
-            self.metadata = self.metadata_class.from_file(self.metadata_path)
+            return cls.metadata_class.from_file(metadata_path)
         except FileNotFoundError:
-            self.metadata = self.init_metadata()
+            metadata = cls.init_metadata(filepath)
+            metadata.to_file(metadata_path)
+            return metadata
 
+    @classmethod
     @abc.abstractmethod
-    def init_metadata(self) -> Metadata:
+    def init_metadata(cls, filepath) -> Metadata:
         """
         Called when no metadata file is found.
+
+        Parameters
+        ----------
+        filepath: pathlib.Path or str
+            The path to the image file.
 
         Returns
         -------
@@ -41,8 +63,13 @@ class ImageBase(abc.ABC):
         """
         pass
 
-    def dump_metadata(self):
+    def write_metadata(self):
         self.metadata.to_file(self.metadata_path)
 
     def derived_path(self, suffix: str) -> pathlib.Path:
-        return self.filepath.parent / '.imzDesk' / f'{self.filepath.stem}{suffix}'
+        return self.derived_path_for(self.filepath, suffix)
+
+    @staticmethod
+    def derived_path_for(filepath, suffix: str) -> pathlib.Path:
+        filepath = pathlib.Path(filepath)
+        return filepath.parent / '.imzDesk' / f'{filepath.stem}{suffix}'
