@@ -543,7 +543,7 @@ function closeAll() {
           {{ wsi }}
         </div>
       </div>
-      <div v-if="overlaid">
+      <div v-if="overlaid" class="mx-2">
         and
       </div>
       <div v-if="showMsi" class="flex truncate gap-2 cursor-pointer" @click="setActive('MSI')">
