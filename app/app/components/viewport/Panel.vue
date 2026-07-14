@@ -553,7 +553,7 @@ function closeAll() {
         </div>
       </div>
       <div class="flex-1" />
-      <ViewportDisplayMSI v-if="showMsi" :display="msiDisplay" @apply="applyMsiDisplay" />
+      <ViewportDisplayMSI v-if="showMsi" :display="msiDisplay" :loading="msiRendering" @apply="applyMsiDisplay" />
       <UButton
         icon="mdi-close"
         variant="ghost"

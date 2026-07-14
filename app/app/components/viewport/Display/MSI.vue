@@ -3,6 +3,7 @@ import type { MSIDisplay } from '~/types/images'
 
 const props = defineProps<{
   display: MSIDisplay
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -134,7 +135,7 @@ function apply() {
               Visualization Mode
             </div>
           </div>
-          <UButton label="Apply" color="secondary" variant="soft" size="sm" @click="apply" />
+          <UButton label="Apply" color="secondary" variant="soft" size="sm" :loading="loading" :disabled="loading" @click="apply" />
         </div>
         <div class="space-y-3">
           <section class="space-y-2">
