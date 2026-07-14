@@ -54,7 +54,7 @@ def image_impl(filepath: pathlib.Path, settings: schema.MSIImageRequest):
     image_path = cache_path(msi, key=settings, suffix='.png')
 
     if image_path.exists():
-        return FileResponse(path=image_path, media_type='image/png', filename=image_path.name)
+        return image_response(image_path)
 
     transforms: List[T.Transform] = [
         T.ToRImage(),
@@ -93,7 +93,20 @@ def image_impl(filepath: pathlib.Path, settings: schema.MSIImageRequest):
     display = DImageDisplay(image, colormap=settings.reduction.colormap)
     display.save(image_path, format='PNG')
 
-    return FileResponse(path=image_path, media_type='image/png', filename=image_path.name)
+    return image_response(image_path)
+
+
+def image_response(image_path: pathlib.Path):
+    cache_key_hash = image_path.stem.rsplit(".", 1)[-1]
+    return FileResponse(
+        path=image_path,
+        media_type='image/png',
+        filename=image_path.name,
+        headers={
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            'ETag': f'"{cache_key_hash}"',
+        },
+    )
 
 
 @router.post('/registered')

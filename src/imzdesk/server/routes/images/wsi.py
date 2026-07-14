@@ -46,4 +46,10 @@ def tile_impl(filepath: pathlib.Path, level: int, row: int, column: int):
     im = wsi.get_tile(level, row, column)
     buffer = io.BytesIO()
     im.save(buffer, format='PNG')
-    return Response(buffer.getvalue(), media_type='image/png')
+    return Response(
+        buffer.getvalue(),
+        media_type='image/png',
+        headers={
+            'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+    )
