@@ -197,6 +197,7 @@ def get_cvparams_by_accession(imzml_path, *accessions):
         )
         if not matches:
             yield None
+            continue
         match, = matches
         yield match.attrib['value'], match.attrib.get('unitAccession')
 
