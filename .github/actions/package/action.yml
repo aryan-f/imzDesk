@@ -1,0 +1,66 @@
+name: Test and package imzDesk
+description: Set up imzDesk, run the full test suite, build the frontend, and build Python distributions.
+
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openslide-tools
+
+    - name: Set up pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: 11
+        run_install: false
+
+    - name: Set up Node
+      uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+        cache: pnpm
+        cache-dependency-path: app/pnpm-lock.yaml
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        version: '0.11.23'
+        enable-cache: true
+
+    - name: Install Python dependencies
+      shell: bash
+      run: uv sync --extra extras --dev
+
+    - name: Run Python tests
+      shell: bash
+      run: uv run pytest --cov=imzdesk --cov-report=term-missing
+
+    - name: Install frontend dependencies
+      shell: bash
+      working-directory: app
+      run: pnpm install --frozen-lockfile
+
+    - name: Build Nuxt app
+      shell: bash
+      working-directory: app
+      run: |
+        pnpm run build
+        pnpm exec nuxi generate
+
+    - name: Copy built UI into package
+      shell: bash
+      run: |
+        rm -rf src/imzdesk/server/ui
+        mkdir -p src/imzdesk/server/ui
+        cp -a app/.output/public/. src/imzdesk/server/ui/
+
+    - name: Build wheel and sdist
+      shell: bash
+      run: uv build

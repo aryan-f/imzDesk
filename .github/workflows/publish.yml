@@ -1,0 +1,50 @@
+name: Publish imzDesk to PyPI
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Verify tag is on master
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          git fetch origin master
+          tag_commit="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          git merge-base --is-ancestor "$tag_commit" origin/master
+
+      - name: Verify tag matches package version
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          package_version="$(python - <<'PY'
+          import tomllib
+          with open('pyproject.toml', 'rb') as file:
+              print(tomllib.load(file)['project']['version'])
+          PY
+          )"
+          test "$tag_version" = "$package_version"
+
+      - name: Test and package
+        uses: ./.github/actions/package
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
