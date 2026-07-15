@@ -28,6 +28,11 @@ const normalizationOptions = [
   { label: 'Max', value: 'max' },
 ]
 
+const availableNormalizationOptions = computed(() => normalizationOptions.map(option => ({
+  ...option,
+  disabled: draft.cubing.method === 'embed' && option.value === 'none',
+})))
+
 const cubingOptions = [
   { label: 'Binning', value: 'bin' },
   { label: 'Embeddings', value: 'embed' },
@@ -105,8 +110,11 @@ watch(
 )
 
 watch(
-  () => [draft.cubing.method, draft.reduction.method],
+  () => [draft.cubing.method, draft.preprocessing.normalization, draft.reduction.method],
   () => {
+    if (draft.cubing.method === 'embed' && draft.preprocessing.normalization === 'none') {
+      draft.preprocessing.normalization = 'tic'
+    }
     if (draft.cubing.method !== 'bin' && ['tic', 'nmf'].includes(draft.reduction.method)) {
       draft.reduction.method = 'pca'
     }
@@ -152,7 +160,7 @@ function apply() {
             </div>
             <div class="grid grid-cols-1 gap-2">
               <UFormField label="Normalization" size="sm">
-                <USelect v-model="draft.preprocessing.normalization" :items="normalizationOptions" :ui="selectUi" class="w-full" />
+                <USelect v-model="draft.preprocessing.normalization" :items="availableNormalizationOptions" :ui="selectUi" class="w-full" />
               </UFormField>
             </div>
           </section>
@@ -169,7 +177,7 @@ function apply() {
                 <USelect v-model="draft.cubing.model" :items="embeddingModelOptions" :ui="selectUi" class="w-full" />
               </UFormField>
               <UFormField v-else label="Bin width" size="sm">
-                <UInput v-model.number="draft.cubing.binWidth" type="number" min="0.001" step="0.001" class="w-full font-data" />
+                <UInput v-model.number="draft.cubing.binWidth" type="number" min="0.001" step="0.1" class="w-full font-data" />
               </UFormField>
             </div>
             <div class="grid grid-cols-2 gap-2">
