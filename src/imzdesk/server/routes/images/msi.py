@@ -122,6 +122,7 @@ async def register(request: Request, settings: schema.MSIRegistrationRequest):
 def register_impl(filepath: pathlib.Path, reference: pathlib.Path):
     msi = get_msi_instance(filepath)
     wsi = get_wsi_instance(reference)
+    wsi.metadata = wsi.read_metadata(wsi.filepath)
     transform_path = registration_transform_path(msi, reference)
     transform = R.register(wsi, msi)
     np.save(transform_path, transform.matrix, allow_pickle=False)

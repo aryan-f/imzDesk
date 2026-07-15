@@ -3,6 +3,9 @@ import type OpenSeadragon from 'openseadragon'
 import type { TileSource } from 'openseadragon'
 import type { MSIDisplay, MSIMetadata, WSIMetadata } from '~/types/images'
 
+type CropRect = { x: number, y: number, width: number, height: number }
+type CropHandle = 'move' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
+
 const { state, setActive, closeFile } = useWorkspace()
 
 const props = withDefaults(defineProps<{
@@ -55,9 +58,24 @@ const viewportEl = ref<HTMLElement | null>(null)
 const wsiLoading = ref(showWsi.value)
 const viewerReady = ref(false)
 
-const cropRect = ref<{ x: number, y: number, width: number, height: number } | null>(null)
+const cropRect = ref<CropRect | null>(null)
 const hasCrop = computed(() => cropRect.value !== null)
 const cropEnabled = ref(true)
+const cropEditing = ref(false)
+const cropSaving = ref(false)
+const cropDraft = ref<CropRect | null>(null)
+const cropOverlayRect = ref<{ left: number, top: number, width: number, height: number } | null>(null)
+const cropHandleClass = 'absolute size-3 rounded-full border border-primary bg-default shadow'
+const cropHandles: { handle: CropHandle, class: string }[] = [
+  { handle: 'nw', class: '-left-1.5 -top-1.5 cursor-nwse-resize' },
+  { handle: 'n', class: 'left-1/2 -top-1.5 -translate-x-1/2 cursor-ns-resize' },
+  { handle: 'ne', class: '-right-1.5 -top-1.5 cursor-nesw-resize' },
+  { handle: 'e', class: '-right-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize' },
+  { handle: 'se', class: '-bottom-1.5 -right-1.5 cursor-nwse-resize' },
+  { handle: 's', class: '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize' },
+  { handle: 'sw', class: '-bottom-1.5 -left-1.5 cursor-nesw-resize' },
+  { handle: 'w', class: '-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize' },
+]
 
 const msiDisplay = ref<MSIDisplay>({
   preprocessing: {
@@ -86,6 +104,13 @@ let viewer: OpenSeadragon.Viewer | null = null
 let wsiImageLayer: OpenSeadragon.TiledImage | null = null
 let msiImageLayer: OpenSeadragon.TiledImage | null = null
 let msiRenderTimer: ReturnType<typeof setTimeout> | null = null
+let cropDrag: {
+  handle: CropHandle
+  pointerId: number
+  startX: number
+  startY: number
+  startRect: { left: number, top: number, width: number, height: number }
+} | null = null
 
 function makeGetTileUrl(filepath: string) {
   return (level: number, x: number, y: number) => {
@@ -235,6 +260,183 @@ function resetView() {
     return
   }
   viewer.viewport.goHome()
+}
+
+function clampCrop(crop: CropRect): CropRect {
+  const x = Math.min(Math.max(crop.x, 0), 0.999)
+  const y = Math.min(Math.max(crop.y, 0), 0.999)
+  const width = Math.min(Math.max(crop.width, 0.001), 1 - x)
+  const height = Math.min(Math.max(crop.height, 0.001), 1 - y)
+  return { x, y, width, height }
+}
+
+function cropToElementRect(crop: CropRect) {
+  if (!viewer || !osd || !wsiImageLayer) return null
+  const size = wsiImageLayer.getContentSize()
+  const topLeft = wsiImageLayer.imageToViewportCoordinates(new osd.Point(crop.x * size.x, crop.y * size.y))
+  const bottomRight = wsiImageLayer.imageToViewportCoordinates(new osd.Point((crop.x + crop.width) * size.x, (crop.y + crop.height) * size.y))
+  const topLeftPixel = viewer.viewport.pixelFromPoint(topLeft, true)
+  const bottomRightPixel = viewer.viewport.pixelFromPoint(bottomRight, true)
+  const left = Math.min(topLeftPixel.x, bottomRightPixel.x)
+  const top = Math.min(topLeftPixel.y, bottomRightPixel.y)
+  const right = Math.max(topLeftPixel.x, bottomRightPixel.x)
+  const bottom = Math.max(topLeftPixel.y, bottomRightPixel.y)
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+  }
+}
+
+function elementRectToCrop(rect: { left: number, top: number, width: number, height: number }): CropRect | null {
+  if (!viewer || !osd || !wsiImageLayer) return null
+  const size = wsiImageLayer.getContentSize()
+  const topLeftViewport = viewer.viewport.pointFromPixel(new osd.Point(rect.left, rect.top), true)
+  const bottomRightViewport = viewer.viewport.pointFromPixel(new osd.Point(rect.left + rect.width, rect.top + rect.height), true)
+  const topLeftImage = wsiImageLayer.viewportToImageCoordinates(topLeftViewport)
+  const bottomRightImage = wsiImageLayer.viewportToImageCoordinates(bottomRightViewport)
+  const left = Math.min(topLeftImage.x, bottomRightImage.x) / size.x
+  const top = Math.min(topLeftImage.y, bottomRightImage.y) / size.y
+  const right = Math.max(topLeftImage.x, bottomRightImage.x) / size.x
+  const bottom = Math.max(topLeftImage.y, bottomRightImage.y) / size.y
+  return clampCrop({
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  })
+}
+
+function cropFromCurrentView(): CropRect {
+  if (!viewer || !wsiImageLayer) return { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }
+  const bounds = viewer.viewport.getBounds(true)
+  const size = wsiImageLayer.getContentSize()
+  const topLeft = wsiImageLayer.viewportToImageCoordinates(bounds.getTopLeft())
+  const bottomRight = wsiImageLayer.viewportToImageCoordinates(bounds.getBottomRight())
+  return clampCrop({
+    x: Math.min(topLeft.x, bottomRight.x) / size.x,
+    y: Math.min(topLeft.y, bottomRight.y) / size.y,
+    width: Math.abs(bottomRight.x - topLeft.x) / size.x,
+    height: Math.abs(bottomRight.y - topLeft.y) / size.y,
+  })
+}
+
+function updateCropOverlay() {
+  if (!cropEditing.value || !cropDraft.value) {
+    cropOverlayRect.value = null
+    return
+  }
+  cropOverlayRect.value = cropToElementRect(cropDraft.value)
+}
+
+function startCropEdit() {
+  if (!viewerReady.value || !showWsi.value) return
+  cropDraft.value = cropRect.value ? { ...cropRect.value } : cropFromCurrentView()
+  cropEditing.value = true
+  cropEnabled.value = false
+  applyCrop()
+  updateCropOverlay()
+}
+
+function cancelCropEdit() {
+  cropEditing.value = false
+  cropDraft.value = null
+  cropOverlayRect.value = null
+  cropDrag = null
+  cropEnabled.value = true
+  applyCrop()
+}
+
+async function saveCropEdit() {
+  if (!wsiFilepath.value || !cropDraft.value) return
+  cropSaving.value = true
+  try {
+    cropRect.value = await $fetch<CropRect | null>('/api/images/metadata/crop', {
+      method: 'PUT',
+      query: { filepath: wsiFilepath.value },
+      body: { crop: cropDraft.value },
+    })
+    if (wsiMeta.value) wsiMeta.value.crop = cropRect.value
+    cropEditing.value = false
+    cropDraft.value = null
+    cropOverlayRect.value = null
+    cropEnabled.value = true
+    applyCrop()
+  } finally {
+    cropSaving.value = false
+  }
+}
+
+function cropOverlayStyle() {
+  if (!cropOverlayRect.value) return {}
+  return {
+    left: `${cropOverlayRect.value.left}px`,
+    top: `${cropOverlayRect.value.top}px`,
+    width: `${cropOverlayRect.value.width}px`,
+    height: `${cropOverlayRect.value.height}px`,
+  }
+}
+
+function beginCropDrag(event: PointerEvent, handle: CropHandle) {
+  if (!cropOverlayRect.value) return
+  const target = event.currentTarget as HTMLElement
+  target.setPointerCapture(event.pointerId)
+  cropDrag = {
+    handle,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    startRect: { ...cropOverlayRect.value },
+  }
+}
+
+function dragCrop(event: PointerEvent) {
+  if (!cropDrag || event.pointerId !== cropDrag.pointerId) return
+  const deltaX = event.clientX - cropDrag.startX
+  const deltaY = event.clientY - cropDrag.startY
+  const start = cropDrag.startRect
+  let left = start.left
+  let top = start.top
+  let right = start.left + start.width
+  let bottom = start.top + start.height
+
+  if (cropDrag.handle === 'move') {
+    left += deltaX
+    right += deltaX
+    top += deltaY
+    bottom += deltaY
+  } else {
+    if (cropDrag.handle.includes('w')) left += deltaX
+    if (cropDrag.handle.includes('e')) right += deltaX
+    if (cropDrag.handle.includes('n')) top += deltaY
+    if (cropDrag.handle.includes('s')) bottom += deltaY
+  }
+
+  const minSize = 24
+  if (right - left < minSize) {
+    if (cropDrag.handle.includes('w')) left = right - minSize
+    else right = left + minSize
+  }
+  if (bottom - top < minSize) {
+    if (cropDrag.handle.includes('n')) top = bottom - minSize
+    else bottom = top + minSize
+  }
+
+  const crop = elementRectToCrop({
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+  })
+  if (!crop) return
+  cropDraft.value = crop
+  updateCropOverlay()
+}
+
+function endCropDrag(event: PointerEvent) {
+  if (!cropDrag || event.pointerId !== cropDrag.pointerId) return
+  cropDrag = null
 }
 
 async function initWsiLayer() {
@@ -423,6 +625,9 @@ async function init() {
       springStiffness: 12,
       animationTime: 0.4,
     })
+    viewer.addHandler('animation', updateCropOverlay)
+    viewer.addHandler('animation-finish', updateCropOverlay)
+    viewer.addHandler('resize', updateCropOverlay)
 
     await initWsiLayer()
     await initMsiLayer()
@@ -445,9 +650,11 @@ function applyCrop() {
   } else {
     item.setClip(null)
   }
+  updateCropOverlay()
 }
 
 function toggleCrop() {
+  if (cropEditing.value) cancelCropEdit()
   cropEnabled.value = !cropEnabled.value
   applyCrop()
 }
@@ -469,6 +676,12 @@ async function registerMsi() {
       },
     })
     emit('update:registered', registered)
+    if (registered) {
+      await loadRegistrationMatrix()
+      applyMsiLayerTransform()
+    } else {
+      registrationMatrix.value = null
+    }
   } finally {
     registering.value = false
   }
@@ -498,6 +711,10 @@ function syncFullscreenState() {
 function destroy() {
   destroyWsiLayer()
   destroyMsiLayer()
+  cropEditing.value = false
+  cropDraft.value = null
+  cropOverlayRect.value = null
+  cropDrag = null
   if (viewer) {
     viewer.destroy()
     viewer = null
@@ -510,11 +727,13 @@ function destroy() {
 onMounted(() => {
   init()
   document.addEventListener('fullscreenchange', syncFullscreenState)
+  window.addEventListener('resize', updateCropOverlay)
 })
 
 onBeforeUnmount(() => {
   destroy()
   document.removeEventListener('fullscreenchange', syncFullscreenState)
+  window.removeEventListener('resize', updateCropOverlay)
 })
 
 watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], ([wsi, msi], [previousWsi, previousMsi]) => {
@@ -563,6 +782,49 @@ function closeAll() {
     </div>
     <div ref="viewportEl" class="relative flex-1 bg-default">
       <div ref="viewerEl" class="absolute inset-0" />
+      <div
+        v-if="cropEditing"
+        class="pointer-events-auto absolute inset-0 z-20"
+        @pointerdown.stop.prevent
+        @pointermove.stop.prevent="dragCrop"
+        @pointerup.stop.prevent="endCropDrag"
+        @pointercancel.stop.prevent="endCropDrag"
+      >
+        <div
+          v-if="cropOverlayRect"
+          class="absolute cursor-move border-2 border-primary bg-primary/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]"
+          :style="cropOverlayStyle()"
+          @pointerdown.stop.prevent="beginCropDrag($event, 'move')"
+        >
+          <div
+            v-for="handle in cropHandles"
+            :key="handle.handle"
+            :class="[cropHandleClass, handle.class]"
+            @pointerdown.stop.prevent="beginCropDrag($event, handle.handle)"
+          />
+        </div>
+        <div class="absolute bottom-3 inset-s-1/2 flex -translate-x-1/2 gap-1 rounded-md border border-default/80 bg-default/80 p-1 shadow-lg backdrop-blur-md">
+          <UButton
+            label="Save"
+            icon="i-lucide-check"
+            color="primary"
+            variant="soft"
+            size="sm"
+            :loading="cropSaving"
+            :disabled="cropSaving"
+            @click="saveCropEdit"
+          />
+          <UButton
+            label="Cancel"
+            icon="i-lucide-x"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            :disabled="cropSaving"
+            @click="cancelCropEdit"
+          />
+        </div>
+      </div>
       <div v-if="showWsi || showMsi" class="pointer-events-none absolute inset-0 z-10">
         <div class="pointer-events-auto absolute top-3 flex flex-col gap-1 rounded-md border border-default/80 bg-default/70 p-1 shadow-lg backdrop-blur-md" :class="showWsi ? 'inset-s-3' : 'inset-e-3'">
           <UTooltip v-for="tool in annotationTools" :key="tool.label" :text="tool.label" :delay-duration="250">
@@ -631,11 +893,22 @@ function closeAll() {
             <UButton
               :icon="cropEnabled ? 'mdi-crop' : 'mdi-crop-free'"
               :color="cropEnabled ? 'primary' : 'neutral'"
-              :disabled="!hasCrop"
+              :disabled="!hasCrop || cropEditing"
               variant="ghost"
               size="sm"
               square
               @click="toggleCrop"
+            />
+          </UTooltip>
+          <UTooltip v-if="showWsi" text="Edit crop" :delay-duration="250">
+            <UButton
+              icon="i-lucide-square-pen"
+              :color="cropEditing ? 'primary' : 'neutral'"
+              :disabled="!viewerReady || cropEditing"
+              :variant="cropEditing ? 'soft' : 'ghost'"
+              size="sm"
+              square
+              @click="startCropEdit"
             />
           </UTooltip>
           <UTooltip v-if="showMsi" text="Register" :delay-duration="250">

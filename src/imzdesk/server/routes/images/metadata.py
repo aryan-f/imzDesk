@@ -22,6 +22,35 @@ def get_metadata_impl(filepath: Path):
     return image_class_for(filepath).read_metadata(filepath)
 
 
+@router.get('/crop')
+async def get_crop(request: Request, filepath: str):
+    workspace = request.app.state.settings.workspace
+    filepath = await resolve_path(workspace, filepath)
+    return await get_crop_impl(request, filepath)
+
+
+@threaded
+def get_crop_impl(filepath: Path):
+    return getattr(image_class_for(filepath).read_metadata(filepath), 'crop', None)
+
+
+@router.put('/crop')
+async def put_crop(request: Request, filepath: str, metadata: schema.CropMetadataRequest):
+    workspace = request.app.state.settings.workspace
+    filepath = await resolve_path(workspace, filepath)
+    return await put_crop_impl(request, filepath, metadata)
+
+
+@threaded
+def put_crop_impl(filepath: Path, metadata: schema.CropMetadataRequest):
+    image_class = image_class_for(filepath)
+    current = image_class.read_metadata(filepath)
+    if not hasattr(current, 'crop'):
+        return None
+    current.crop = metadata.crop
+    return image_class.write_metadata(filepath, current).crop
+
+
 @router.post('/optional')
 async def post_optional_metadata(request: Request, filepath: str, metadata: schema.OptionalMetadataRequest):
     workspace = request.app.state.settings.workspace

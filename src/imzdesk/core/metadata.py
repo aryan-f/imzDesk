@@ -10,8 +10,8 @@ MetadataValue = str | int | float | bool | None
 class BoundingBox(BaseModel):
     x: float = Field(ge=0, lt=1)
     y: float = Field(ge=0, lt=1)
-    width: float = Field(ge=0, lt=1)
-    height: float = Field(ge=0, lt=1)
+    width: float = Field(ge=0, le=1)
+    height: float = Field(ge=0, le=1)
 
 
 class Dimensions(BaseModel):
