@@ -45,7 +45,7 @@ def create_app():
         # Worker Threads
         app.state.executor = ThreadPoolExecutor(
             max_workers=settings.max_workers,
-            thread_name_prefix='imzdesk-worker',
+            thread_name_prefix='imzDeskWorkerThread',
         )
         try:
             yield  # Back to the actual FastAPI app

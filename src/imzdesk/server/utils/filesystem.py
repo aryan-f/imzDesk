@@ -51,7 +51,7 @@ async def resolve_path(workspace: Path, relpath: str, is_dir: bool = False, exis
     return resolved
 
 
-def resolve_filetype(abspath: Path) -> filesystem.FileType | None:
+def resolve_filetype(abspath: Path) -> str | None:
     """
     Resolve the file type of ``abspath`` and return the corresponding IO class name.
 
@@ -62,7 +62,7 @@ def resolve_filetype(abspath: Path) -> filesystem.FileType | None:
 
     Returns
     -------
-    FileType | None
+    str | None
         The name of the IO class, or None if the file type is not recognized.
     """
     for name, cls in CLASSES.items():

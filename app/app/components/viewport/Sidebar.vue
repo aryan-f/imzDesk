@@ -41,6 +41,11 @@ const newOptionalKey = ref('')
 const newOptionalValue = ref('')
 const newOptionalKeyInput = ref<{ inputRef?: HTMLInputElement } | null>(null)
 const metadataEndpoint = '/api/images/metadata'
+const tags = ref<string[]>([])
+const tagsLoading = ref(false)
+const newTag = ref('')
+const newTagInput = ref<{ inputRef?: HTMLInputElement } | null>(null)
+const tagsEndpoint = '/api/images/tags'
 
 const requiredRows = computed(() => {
   if (!metadata.value || !state.value.active) return []
@@ -61,6 +66,22 @@ const requiredRows = computed(() => {
 
 const optionalEntries = computed(() => Object.entries(optionalDraft.value))
 const metadataRowClass = 'grid grid-cols-[7.5rem_1fr] gap-2 border-b border-default/40 pr-5 text-sm leading-6'
+const tagBadgeClass = 'inline-flex h-7 max-w-full items-center gap-1 rounded-full border px-2 text-sm leading-none'
+
+function tagColorStyle(tag: string) {
+  const namespace = tag.split('.')[0] || tag
+  let hash = 22101376
+  for (const character of namespace) {
+    hash ^= character.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  const hue = Math.abs(hash) % 360
+  return {
+    backgroundColor: `hsl(${hue} 24% 88%)`,
+    borderColor: `hsl(${hue} 22% 66%)`,
+    color: `hsl(${hue} 32% 26%)`,
+  }
+}
 
 function formatValue(value: unknown) {
   if (value === null || value === undefined || value === '') return '—'
@@ -148,9 +169,56 @@ async function deleteOptional(key: string) {
   syncOptionalDraft(metadata.value)
 }
 
+async function fetchTags() {
+  if (!activeFilepath.value) {
+    tags.value = []
+    return
+  }
+  tagsLoading.value = true
+  try {
+    tags.value = await $fetch<string[]>(`${tagsEndpoint}/all`, {
+      query: { filepath: activeFilepath.value },
+    })
+  } finally {
+    tagsLoading.value = false
+  }
+}
+
+async function addTag() {
+  const tag = newTag.value.trim()
+  if (!tag || !activeFilepath.value) return
+  tags.value = await $fetch<string[]>(tagsEndpoint, {
+    method: 'POST',
+    query: { filepath: activeFilepath.value },
+    body: { tag },
+  })
+  newTag.value = ''
+  await nextTick()
+  newTagInput.value?.inputRef?.focus()
+}
+
+async function deleteTag(tag: string) {
+  if (!activeFilepath.value) return
+  tags.value = await $fetch<string[]>(tagsEndpoint, {
+    method: 'DELETE',
+    query: {
+      filepath: activeFilepath.value,
+      tag,
+    },
+  })
+}
+
 watch(
   () => [state.value.active, activeFilepath.value] as [FileType | null, string | null],
   fetchMetadata,
+  { immediate: true },
+)
+
+watch(
+  () => [state.value.active, activeFilepath.value, tab.value] as [FileType | null, string | null, string],
+  () => {
+    if (tab.value === 'tags') fetchTags()
+  },
   { immediate: true },
 )
 </script>
@@ -221,6 +289,32 @@ watch(
               </div>
             </div>
           </section>
+        </div>
+      </template>
+      <template v-else-if="tab === 'tags'">
+        <div v-if="tagsLoading" class="flex items-center gap-2 py-1 text-sm text-muted">
+          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+          <span>Loading tags</span>
+        </div>
+        <div v-else class="flex flex-wrap items-center gap-1.5">
+          <div v-for="tag in tags" :key="tag" :class="tagBadgeClass" :style="tagColorStyle(tag)">
+            <span class="min-w-0 max-w-40 truncate font-data">
+              {{ tag }}
+            </span>
+            <UButton icon="i-lucide-x" color="neutral" variant="ghost" size="xs" square class="-mr-1 size-4 p-0 text-inherit hover:bg-black/10" @click="deleteTag(tag)" />
+          </div>
+          <div :class="[tagBadgeClass, 'w-14 border-default bg-default pr-1']">
+            <UInput
+              ref="newTagInput"
+              v-model="newTag"
+              variant="none"
+              size="sm"
+              placeholder="Add"
+              :ui="{ base: 'h-5 w-8 px-0 py-0 font-data text-sm' }"
+              @keyup.enter="addTag"
+            />
+            <UButton icon="i-lucide-plus" :color="activeColor" variant="ghost" size="xs" square class="size-4 p-0" @click="addTag" />
+          </div>
         </div>
       </template>
       <USkeleton v-else class="h-full min-h-48 overflow-hidden" />

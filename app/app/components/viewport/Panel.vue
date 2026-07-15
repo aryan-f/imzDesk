@@ -70,7 +70,7 @@ const msiDisplay = ref<MSIDisplay>({
     method: 'bin',
     mzMin: 50,
     mzMax: 1000,
-    binWidth: 0.1,
+    binWidth: 1,
     model: 'roman-bushuiev/DreaMS',
   },
   reduction: {
