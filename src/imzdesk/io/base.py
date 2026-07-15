@@ -46,7 +46,7 @@ class ImageBase(abc.ABC):
             return metadata
 
     @classmethod
-    def write_metadata(cls, filepath, metadata: Metadata) -> Metadata:
+    def flush_metadata(cls, filepath, metadata: Metadata) -> Metadata:
         metadata_path = cls.derived_path_for(filepath, '.meta.yaml')
         metadata.to_file(metadata_path)
         return metadata

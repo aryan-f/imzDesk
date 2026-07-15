@@ -34,7 +34,7 @@ def post_optional_metadata_impl(filepath: Path, metadata: schema.OptionalMetadat
     image_class = image_class_for(filepath)
     current = image_class.read_metadata(filepath)
     current.optional[metadata.key] = metadata.value
-    return image_class.write_metadata(filepath, current)
+    return image_class.flush_metadata(filepath, current)
 
 
 @router.delete('/optional')
@@ -49,7 +49,7 @@ def delete_optional_metadata_impl(filepath: Path, key: str):
     image_class = image_class_for(filepath)
     current = image_class.read_metadata(filepath)
     current.optional.pop(key, None)
-    return image_class.write_metadata(filepath, current)
+    return image_class.flush_metadata(filepath, current)
 
 
 def image_class_for(filepath: Path) -> type[ImageBase]:
