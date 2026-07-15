@@ -8,6 +8,7 @@ export interface WSIMetadata {
   mpp: { x: number, y: number }
   size: { x: number, y: number } // centimeters
   crop: { x: number, y: number, width: number, height: number } | null
+  optional: Record<string, string | number | boolean | null>
 }
 
 export interface MSIMetadata {
@@ -15,6 +16,7 @@ export interface MSIMetadata {
   height: number | null
   mpp: { x: number, y: number } | null
   size: { x: number, y: number } | null // centimeters
+  optional: Record<string, string | number | boolean | null>
 }
 
 export interface MSIDisplay {

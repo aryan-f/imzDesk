@@ -1,1 +1,1 @@
-from . import msi
+from . import metadata, msi

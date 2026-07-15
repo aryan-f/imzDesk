@@ -20,18 +20,6 @@ def get_wsi_instance(filepath: pathlib.Path | str):
     return WSI(filepath)
 
 
-@router.get('/metadata')
-async def metadata(request: Request, filepath: str) -> WSI.metadata_class:
-    workspace = request.app.state.settings.workspace
-    filepath = await resolve_path(workspace, filepath)
-    return await metadata_impl(request, filepath)
-
-
-@threaded
-def metadata_impl(filepath: pathlib.Path):
-    return WSI.read_metadata(filepath)
-
-
 @router.get('/tile')
 async def tile(request: Request, filepath: str, level: int, row: int, column: int):
     workspace = request.app.state.settings.workspace

@@ -155,7 +155,7 @@ function formatSize(value: WSIMetadata['size'] | MSIMetadata['size'] | undefined
 }
 
 async function buildTileSource(filepath: string) {
-  wsiMeta.value = await $fetch<WSIMetadata>('/api/images/wsi/metadata', {
+  wsiMeta.value = await $fetch<WSIMetadata>('/api/images/metadata/all', {
     query: { filepath },
   })
 
@@ -177,7 +177,7 @@ async function loadMsiMetadata() {
     msiMeta.value = null
     return
   }
-  msiMeta.value = await $fetch<MSIMetadata>('/api/images/msi/metadata', {
+  msiMeta.value = await $fetch<MSIMetadata>('/api/images/metadata/all', {
     query: { filepath: msiFilepath.value },
   })
 }
@@ -350,7 +350,6 @@ async function renderMsiImage() {
     method: 'POST',
     body: {
       filepath: msiFilepath.value,
-      registered: props.registered,
       preprocessing: msiDisplay.value.preprocessing,
       cubing: msiDisplay.value.cubing,
       reduction: msiDisplay.value.reduction,

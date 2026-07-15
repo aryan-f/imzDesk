@@ -46,6 +46,12 @@ class ImageBase(abc.ABC):
             return metadata
 
     @classmethod
+    def write_metadata(cls, filepath, metadata: Metadata) -> Metadata:
+        metadata_path = cls.derived_path_for(filepath, '.meta.yaml')
+        metadata.to_file(metadata_path)
+        return metadata
+
+    @classmethod
     @abc.abstractmethod
     def init_metadata(cls, filepath) -> Metadata:
         """
@@ -63,7 +69,7 @@ class ImageBase(abc.ABC):
         """
         pass
 
-    def write_metadata(self):
+    def dump_metadata(self):
         self.metadata.to_file(self.metadata_path)
 
     def derived_path(self, suffix: str) -> pathlib.Path:

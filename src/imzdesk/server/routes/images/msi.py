@@ -27,18 +27,6 @@ def get_msi_instance(filepath: pathlib.Path | str):
     return MSI(filepath, cache_portable=False)
 
 
-@router.get('/metadata')
-async def metadata(request: Request, filepath: str) -> MSI.metadata_class:
-    workspace = request.app.state.settings.workspace
-    filepath = await resolve_path(workspace, filepath)
-    return await metadata_impl(request, filepath)
-
-
-@threaded
-def metadata_impl(filepath: pathlib.Path):
-    return MSI.read_metadata(filepath)
-
-
 @router.post('/image')
 async def image(request: Request, settings: schema.MSIImageRequest):
     workspace = request.app.state.settings.workspace

@@ -27,7 +27,6 @@ class ReductionSettings(BaseModel):
 
 class MSIImageRequest(BaseModel):
     filepath: str
-    registered: bool = False
     preprocessing: PreprocessingSettings = Field(default_factory=PreprocessingSettings)
     cubing: CubingSettings = Field(default_factory=CubingSettings)
     reduction: ReductionSettings = Field(default_factory=ReductionSettings)

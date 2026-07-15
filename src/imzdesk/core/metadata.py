@@ -4,6 +4,9 @@ import yaml
 from pydantic import BaseModel, Field, computed_field
 
 
+MetadataValue = str | int | float | bool | None
+
+
 class BoundingBox(BaseModel):
     x: float = Field(ge=0, lt=1)
     y: float = Field(ge=0, lt=1)
@@ -33,6 +36,7 @@ class Metadata(BaseModel):
     width: int | None = Field(default=None, ge=1)
     height: int | None = Field(default=None, ge=1)
     mpp: Dimensions | None = None
+    optional: dict[str, MetadataValue] = Field(default_factory=dict)
 
     @computed_field
     @property

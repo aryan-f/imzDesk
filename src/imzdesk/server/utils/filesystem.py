@@ -65,7 +65,7 @@ def resolve_filetype(abspath: Path) -> filesystem.FileType | None:
     FileType | None
         The name of the IO class, or None if the file type is not recognized.
     """
-    for cls in CLASSES:
+    for name, cls in CLASSES.items():
         if abspath.suffix in cls.extensions:
-            return cls.__name__
+            return name
     return None
