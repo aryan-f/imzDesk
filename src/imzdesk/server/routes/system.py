@@ -5,6 +5,8 @@ import psutil
 from fastapi import APIRouter, Request
 from fastapi.sse import EventSourceResponse
 
+from imzdesk.server.utils.system import memory_metrics
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -26,16 +28,16 @@ async def metrics(request: Request):
         if await request.is_disconnected():
             return
         cpu_usage = psutil.cpu_percent(interval=None)
-        memory_info = psutil.virtual_memory()
+        memory_info = memory_metrics()
         yield {
             'data': {
                 'cpu': {
                     'usage_percent': cpu_usage
                 },
                 'memory': {
-                    'usage_percent': memory_info.percent,
-                    'used': round(memory_info.used / (1024 * 1024 * 1024), 2),
-                    'total': round(memory_info.total / (1024 * 1024 * 1024), 2)
+                    'used': memory_info['used'],
+                    'total': memory_info['total'],
+                    'usage_percent': memory_info['usage_percent'],
                 }
             }
         }
