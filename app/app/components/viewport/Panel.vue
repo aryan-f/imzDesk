@@ -622,9 +622,11 @@ async function init() {
       element: viewerEl.value,
       tileSources: [],
       showNavigationControl: false,
+      imageSmoothingEnabled: false,
       springStiffness: 12,
       animationTime: 0.4,
     })
+    viewer.drawer.setImageSmoothingEnabled(false)
     viewer.addHandler('animation', updateCropOverlay)
     viewer.addHandler('animation-finish', updateCropOverlay)
     viewer.addHandler('resize', updateCropOverlay)
