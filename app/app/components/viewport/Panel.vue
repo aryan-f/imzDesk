@@ -5,6 +5,11 @@ import type { MSIDisplay, MSIMetadata, WSIMetadata } from '~/types/images'
 
 type CropRect = { x: number, y: number, width: number, height: number }
 type CropHandle = 'move' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
+type Point = { x: number, y: number }
+type ManualRegistrationHandle = 'move' | 'rotate' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
+type ManualRegistrationState = { origin: Point, xVector: Point, yVector: Point }
+type ManualRegistrationFrame = { origin: Point, width: number, height: number, angle: number }
+type MsiImageOverlay = { width: number, height: number, transform: string, opacity: number }
 
 const { state, setActive, closeFile } = useWorkspace()
 
@@ -51,6 +56,12 @@ const msiRendering = ref(false)
 const msiOpacity = ref(0.65)
 const registrationMatrix = ref<number[][] | null>(null)
 const registering = ref(false)
+const manualRegistrationEditing = ref(false)
+const manualRegistrationSaving = ref(false)
+const manualRegistration = ref<ManualRegistrationState | null>(null)
+const manualRegistrationFrame = ref<ManualRegistrationFrame | null>(null)
+const manualRegistrationOriginalMatrix = ref<number[][] | null>(null)
+const msiImageOverlay = ref<MsiImageOverlay | null>(null)
 
 const viewerEl = ref<HTMLElement | null>(null)
 const viewportEl = ref<HTMLElement | null>(null)
@@ -75,6 +86,19 @@ const cropHandles: { handle: CropHandle, class: string }[] = [
   { handle: 's', class: '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize' },
   { handle: 'sw', class: '-bottom-1.5 -left-1.5 cursor-nesw-resize' },
   { handle: 'w', class: '-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize' },
+]
+const manualRegistrationHandleClass = 'absolute z-20 size-4 border-2 border-secondary bg-default shadow'
+const manualRegistrationEdges: { handle: ManualRegistrationHandle, class: string }[] = [
+  { handle: 'n', class: 'left-0 top-0 z-10 h-1.5 w-full -translate-y-1/2' },
+  { handle: 'e', class: 'right-0 top-0 z-10 h-full w-1.5 translate-x-1/2' },
+  { handle: 's', class: 'bottom-0 left-0 z-10 h-1.5 w-full translate-y-1/2' },
+  { handle: 'w', class: 'left-0 top-0 z-10 h-full w-1.5 -translate-x-1/2' },
+]
+const manualRegistrationCorners: { handle: ManualRegistrationHandle, class: string }[] = [
+  { handle: 'nw', class: '-left-2 -top-2' },
+  { handle: 'ne', class: '-right-2 -top-2' },
+  { handle: 'se', class: '-bottom-2 -right-2' },
+  { handle: 'sw', class: '-bottom-2 -left-2' },
 ]
 
 const msiDisplay = ref<MSIDisplay>({
@@ -110,6 +134,15 @@ let cropDrag: {
   startX: number
   startY: number
   startRect: { left: number, top: number, width: number, height: number }
+} | null = null
+let manualRegistrationDrag: {
+  handle: ManualRegistrationHandle
+  pointerId: number
+  startX: number
+  startY: number
+  startState: ManualRegistrationState
+  startCenter: Point
+  startAngle: number
 } | null = null
 
 function makeGetTileUrl(filepath: string) {
@@ -378,6 +411,365 @@ function cropOverlayStyle() {
   }
 }
 
+function addPoint(a: Point, b: Point): Point {
+  return { x: a.x + b.x, y: a.y + b.y }
+}
+
+function subtractPoint(a: Point, b: Point): Point {
+  return { x: a.x - b.x, y: a.y - b.y }
+}
+
+function scalePoint(point: Point, factor: number): Point {
+  return { x: point.x * factor, y: point.y * factor }
+}
+
+function pointLength(point: Point) {
+  return Math.hypot(point.x, point.y)
+}
+
+function normalizePoint(point: Point): Point {
+  const length = pointLength(point)
+  if (length === 0) return { x: 0, y: 0 }
+  return scalePoint(point, 1 / length)
+}
+
+function dotPoint(a: Point, b: Point) {
+  return a.x * b.x + a.y * b.y
+}
+
+function rotatePoint(point: Point, angle: number): Point {
+  const cosine = Math.cos(angle)
+  const sine = Math.sin(angle)
+  return {
+    x: point.x * cosine - point.y * sine,
+    y: point.x * sine + point.y * cosine,
+  }
+}
+
+function cloneManualRegistrationState(state: ManualRegistrationState): ManualRegistrationState {
+  return {
+    origin: { ...state.origin },
+    xVector: { ...state.xVector },
+    yVector: { ...state.yVector },
+  }
+}
+
+function manualRegistrationCenter(state: ManualRegistrationState): Point {
+  return addPoint(state.origin, scalePoint(addPoint(state.xVector, state.yVector), 0.5))
+}
+
+function imageContentSize() {
+  const size = msiImageLayer?.getContentSize()
+  if (size) return { x: size.x, y: size.y }
+  if (msiMeta.value?.width && msiMeta.value?.height) return { x: msiMeta.value.width, y: msiMeta.value.height }
+  return null
+}
+
+function registrationMatrixToManualState(matrix: number[][]): ManualRegistrationState | null {
+  if (!viewer || !osd || !wsiImageLayer || !wsiMeta.value || !msiMeta.value?.mpp) return null
+  const size = imageContentSize()
+  if (!size) return null
+  const row0 = matrix[0]
+  const row1 = matrix[1]
+  if (!row0 || !row1) return null
+  const xScale = msiMeta.value.mpp.x / wsiMeta.value.mpp.x
+  const yScale = msiMeta.value.mpp.y / wsiMeta.value.mpp.y
+  const a = (row0[0] ?? 1) * xScale
+  const b = (row0[1] ?? 0) * xScale
+  const c = (row0[2] ?? 0) * xScale
+  const d = (row1[0] ?? 0) * yScale
+  const e = (row1[1] ?? 1) * yScale
+  const f = (row1[2] ?? 0) * yScale
+  const origin = wsiImageLayer.imageToViewportCoordinates(new osd.Point(c, f))
+  const xAxis = wsiImageLayer.imageToViewportCoordinates(new osd.Point(c + a * size.x, f + d * size.x))
+  const yAxis = wsiImageLayer.imageToViewportCoordinates(new osd.Point(c + b * size.y, f + e * size.y))
+  return {
+    origin: { x: origin.x, y: origin.y },
+    xVector: { x: xAxis.x - origin.x, y: xAxis.y - origin.y },
+    yVector: { x: yAxis.x - origin.x, y: yAxis.y - origin.y },
+  }
+}
+
+function manualStateToRegistrationMatrix(state: ManualRegistrationState): number[][] | null {
+  if (!viewer || !osd || !wsiImageLayer || !wsiMeta.value || !msiMeta.value?.mpp) return null
+  const size = imageContentSize()
+  if (!size) return null
+  const origin = new osd.Point(state.origin.x, state.origin.y)
+  const xAxis = new osd.Point(state.origin.x + state.xVector.x / size.x, state.origin.y + state.xVector.y / size.x)
+  const yAxis = new osd.Point(state.origin.x + state.yVector.x / size.y, state.origin.y + state.yVector.y / size.y)
+  const originImage = wsiImageLayer.viewportToImageCoordinates(origin)
+  const xAxisImage = wsiImageLayer.viewportToImageCoordinates(xAxis)
+  const yAxisImage = wsiImageLayer.viewportToImageCoordinates(yAxis)
+  const xScale = msiMeta.value.mpp.x / wsiMeta.value.mpp.x
+  const yScale = msiMeta.value.mpp.y / wsiMeta.value.mpp.y
+  return [
+    [
+      (xAxisImage.x - originImage.x) / xScale,
+      (yAxisImage.x - originImage.x) / xScale,
+      originImage.x / xScale,
+    ],
+    [
+      (xAxisImage.y - originImage.y) / yScale,
+      (yAxisImage.y - originImage.y) / yScale,
+      originImage.y / yScale,
+    ],
+    [0, 0, 1],
+  ]
+}
+
+function stateToElementFrame(state: ManualRegistrationState): ManualRegistrationFrame | null {
+  if (!viewer || !osd) return null
+  const origin = viewer.viewport.pixelFromPoint(new osd.Point(state.origin.x, state.origin.y), true)
+  const xAxis = viewer.viewport.pixelFromPoint(new osd.Point(state.origin.x + state.xVector.x, state.origin.y + state.xVector.y), true)
+  const yAxis = viewer.viewport.pixelFromPoint(new osd.Point(state.origin.x + state.yVector.x, state.origin.y + state.yVector.y), true)
+  const xVector = { x: xAxis.x - origin.x, y: xAxis.y - origin.y }
+  const yVector = { x: yAxis.x - origin.x, y: yAxis.y - origin.y }
+  return {
+    origin,
+    width: pointLength(xVector),
+    height: pointLength(yVector),
+    angle: Math.atan2(xVector.y, xVector.x),
+  }
+}
+
+function updateManualRegistrationFrame() {
+  if (!manualRegistrationEditing.value || !manualRegistration.value) {
+    manualRegistrationFrame.value = null
+    return
+  }
+  manualRegistrationFrame.value = stateToElementFrame(manualRegistration.value)
+}
+
+function manualRegistrationFrameStyle() {
+  if (!manualRegistrationFrame.value) return {}
+  const frame = manualRegistrationFrame.value
+  return {
+    left: `${frame.origin.x}px`,
+    top: `${frame.origin.y}px`,
+    width: `${frame.width}px`,
+    height: `${frame.height}px`,
+    transform: `rotate(${frame.angle}rad)`,
+  }
+}
+
+function cursorForAngle(angle: number) {
+  const quarterTurn = Math.PI / 4
+  const normalized = ((angle % Math.PI) + Math.PI) % Math.PI
+  const index = Math.round(normalized / quarterTurn) % 4
+  return ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'][index]
+}
+
+function manualRegistrationHandleStyle(handle: ManualRegistrationHandle) {
+  if (!manualRegistrationFrame.value) return {}
+  const frame = manualRegistrationFrame.value
+  const diagonal = Math.atan2(frame.height, frame.width)
+  let angle = frame.angle
+  if (handle === 'n' || handle === 's') angle += Math.PI / 2
+  if (handle === 'nw' || handle === 'se') angle += diagonal
+  if (handle === 'ne' || handle === 'sw') angle -= diagonal
+  return { cursor: cursorForAngle(angle) }
+}
+
+function updateMsiImageOverlay() {
+  if (!overlaid.value || !registrationMatrix.value || !msiImageUrl.value || !viewer || !osd || !wsiImageLayer || !wsiMeta.value || !msiMeta.value?.mpp) {
+    msiImageOverlay.value = null
+    return
+  }
+  const size = imageContentSize()
+  const state = registrationMatrixToManualState(registrationMatrix.value)
+  if (!size || !state) {
+    msiImageOverlay.value = null
+    return
+  }
+  const origin = viewer.viewport.pixelFromPoint(new osd.Point(state.origin.x, state.origin.y), true)
+  const xAxis = viewer.viewport.pixelFromPoint(new osd.Point(state.origin.x + state.xVector.x / size.x, state.origin.y + state.xVector.y / size.x), true)
+  const yAxis = viewer.viewport.pixelFromPoint(new osd.Point(state.origin.x + state.yVector.x / size.y, state.origin.y + state.yVector.y / size.y), true)
+  msiImageOverlay.value = {
+    width: size.x,
+    height: size.y,
+    opacity: msiOpacity.value,
+    transform: `matrix(${xAxis.x - origin.x}, ${xAxis.y - origin.y}, ${yAxis.x - origin.x}, ${yAxis.y - origin.y}, ${origin.x}, ${origin.y})`,
+  }
+}
+
+function msiImageOverlayStyle() {
+  if (!msiImageOverlay.value) return {}
+  return {
+    width: `${msiImageOverlay.value.width}px`,
+    height: `${msiImageOverlay.value.height}px`,
+    opacity: String(msiImageOverlay.value.opacity),
+    transform: msiImageOverlay.value.transform,
+  }
+}
+
+function applyManualRegistrationState() {
+  if (!manualRegistration.value) return
+  const matrix = manualStateToRegistrationMatrix(manualRegistration.value)
+  if (matrix) {
+    registrationMatrix.value = matrix
+    applyMsiLayerTransform()
+  }
+  updateManualRegistrationFrame()
+}
+
+function startManualRegistrationEdit() {
+  if (!overlaid.value || !registrationMatrix.value) return
+  const state = registrationMatrixToManualState(registrationMatrix.value)
+  if (!state) return
+  if (cropEditing.value) cancelCropEdit()
+  manualRegistrationOriginalMatrix.value = registrationMatrix.value.map(row => [...row])
+  manualRegistration.value = state
+  manualRegistrationEditing.value = true
+  updateManualRegistrationFrame()
+}
+
+function cancelManualRegistrationEdit() {
+  registrationMatrix.value = manualRegistrationOriginalMatrix.value
+  manualRegistrationEditing.value = false
+  manualRegistrationSaving.value = false
+  manualRegistration.value = null
+  manualRegistrationFrame.value = null
+  manualRegistrationOriginalMatrix.value = null
+  manualRegistrationDrag = null
+  applyMsiLayerTransform()
+}
+
+async function saveManualRegistrationEdit() {
+  const query = registrationRequestParams()
+  if (!query || !manualRegistration.value) return
+  const matrix = manualStateToRegistrationMatrix(manualRegistration.value)
+  if (!matrix) return
+  manualRegistrationSaving.value = true
+  try {
+    await $fetch<boolean>('/api/images/msi/registered/transform', {
+      method: 'PUT',
+      body: {
+        filepath: query.filepath,
+        reference: query.reference,
+        transform: matrix,
+      },
+    })
+    registrationMatrix.value = matrix
+    emit('update:registered', true)
+    manualRegistrationEditing.value = false
+    manualRegistration.value = null
+    manualRegistrationFrame.value = null
+    manualRegistrationOriginalMatrix.value = null
+    manualRegistrationDrag = null
+    applyMsiLayerTransform()
+  } finally {
+    manualRegistrationSaving.value = false
+  }
+}
+
+function beginManualRegistrationDrag(event: PointerEvent, handle: ManualRegistrationHandle) {
+  if (!manualRegistration.value || !viewer || !osd) return
+  const target = event.currentTarget as HTMLElement
+  target.setPointerCapture(event.pointerId)
+  const center = manualRegistrationCenter(manualRegistration.value)
+  const centerPixel = viewer.viewport.pixelFromPoint(new osd.Point(center.x, center.y), true)
+  manualRegistrationDrag = {
+    handle,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    startState: cloneManualRegistrationState(manualRegistration.value),
+    startCenter: { x: centerPixel.x, y: centerPixel.y },
+    startAngle: Math.atan2(event.clientY - centerPixel.y, event.clientX - centerPixel.x),
+  }
+}
+
+function dragManualRegistration(event: PointerEvent) {
+  if (!manualRegistrationDrag || event.pointerId !== manualRegistrationDrag.pointerId || !viewer || !osd) return
+  const start = manualRegistrationDrag.startState
+  const startPoint = viewer.viewport.pointFromPixel(new osd.Point(manualRegistrationDrag.startX, manualRegistrationDrag.startY), true)
+  const currentPoint = viewer.viewport.pointFromPixel(new osd.Point(event.clientX, event.clientY), true)
+  const delta = { x: currentPoint.x - startPoint.x, y: currentPoint.y - startPoint.y }
+  if (manualRegistrationDrag.handle === 'move') {
+    manualRegistration.value = {
+      origin: addPoint(start.origin, delta),
+      xVector: { ...start.xVector },
+      yVector: { ...start.yVector },
+    }
+  } else if (manualRegistrationDrag.handle === 'rotate') {
+    const angle = Math.atan2(event.clientY - manualRegistrationDrag.startCenter.y, event.clientX - manualRegistrationDrag.startCenter.x)
+    manualRegistration.value = rotateManualRegistration(start, angle - manualRegistrationDrag.startAngle)
+  } else if (manualRegistrationDrag.handle.length === 2) {
+    manualRegistration.value = resizeManualRegistrationCorner(start, manualRegistrationDrag.handle, delta)
+  } else {
+    manualRegistration.value = resizeManualRegistrationEdge(start, manualRegistrationDrag.handle, delta)
+  }
+  applyManualRegistrationState()
+}
+
+function rotateManualRegistration(start: ManualRegistrationState, angle: number): ManualRegistrationState {
+  const center = manualRegistrationCenter(start)
+  const rotatedX = rotatePoint(start.xVector, angle)
+  const rotatedY = rotatePoint(start.yVector, angle)
+  return {
+    origin: subtractPoint(center, scalePoint(addPoint(rotatedX, rotatedY), 0.5)),
+    xVector: rotatedX,
+    yVector: rotatedY,
+  }
+}
+
+function resizeManualRegistrationEdge(start: ManualRegistrationState, handle: ManualRegistrationHandle, delta: Point): ManualRegistrationState {
+  const xLength = pointLength(start.xVector)
+  const yLength = pointLength(start.yVector)
+  const xUnit = normalizePoint(start.xVector)
+  const yUnit = normalizePoint(start.yVector)
+  const xChange = dotPoint(delta, xUnit)
+  const yChange = dotPoint(delta, yUnit)
+  let origin = { ...start.origin }
+  let width = xLength
+  let height = yLength
+  if (handle === 'e') width += xChange
+  if (handle === 'w') {
+    width -= xChange
+    origin = addPoint(origin, scalePoint(xUnit, xChange))
+  }
+  if (handle === 's') height += yChange
+  if (handle === 'n') {
+    height -= yChange
+    origin = addPoint(origin, scalePoint(yUnit, yChange))
+  }
+  width = Math.max(width, 0.0001)
+  height = Math.max(height, 0.0001)
+  return {
+    origin,
+    xVector: scalePoint(xUnit, width),
+    yVector: scalePoint(yUnit, height),
+  }
+}
+
+function resizeManualRegistrationCorner(start: ManualRegistrationState, handle: ManualRegistrationHandle, delta: Point): ManualRegistrationState {
+  const xLength = pointLength(start.xVector)
+  const yLength = pointLength(start.yVector)
+  const xUnit = normalizePoint(start.xVector)
+  const yUnit = normalizePoint(start.yVector)
+  const xSign = handle.includes('e') ? 1 : -1
+  const ySign = handle.includes('s') ? 1 : -1
+  const xScale = (xLength + dotPoint(delta, xUnit) * xSign) / xLength
+  const yScale = (yLength + dotPoint(delta, yUnit) * ySign) / yLength
+  const scale = Math.max(Math.abs(xScale - 1) > Math.abs(yScale - 1) ? xScale : yScale, 0.02)
+  const xVector = scalePoint(xUnit, xLength * scale)
+  const yVector = scalePoint(yUnit, yLength * scale)
+  let anchor = start.origin
+  if (handle === 'nw') anchor = addPoint(start.origin, addPoint(start.xVector, start.yVector))
+  if (handle === 'ne') anchor = addPoint(start.origin, start.yVector)
+  if (handle === 'sw') anchor = addPoint(start.origin, start.xVector)
+  if (handle === 'se') anchor = start.origin
+  if (handle === 'nw') return { origin: subtractPoint(anchor, addPoint(xVector, yVector)), xVector, yVector }
+  if (handle === 'ne') return { origin: subtractPoint(anchor, yVector), xVector, yVector }
+  if (handle === 'sw') return { origin: subtractPoint(anchor, xVector), xVector, yVector }
+  return { origin: anchor, xVector, yVector }
+}
+
+function endManualRegistrationDrag(event: PointerEvent) {
+  if (!manualRegistrationDrag || event.pointerId !== manualRegistrationDrag.pointerId) return
+  manualRegistrationDrag = null
+}
+
 function beginCropDrag(event: PointerEvent, handle: CropHandle) {
   if (!cropOverlayRect.value) return
   const target = event.currentTarget as HTMLElement
@@ -505,7 +897,8 @@ function displayMsiImage(url: string) {
 
 function applyMsiLayerTransform() {
   if (!viewer || !osd || !msiImageLayer) return
-  msiImageLayer.setOpacity(overlaid.value ? msiOpacity.value : 1)
+  msiImageLayer.setOpacity(overlaid.value ? 0 : 1)
+  updateMsiImageOverlay()
   if (!overlaid.value || !registrationMatrix.value || !wsiImageLayer || !wsiMeta.value || !msiMeta.value?.mpp) return
 
   const matrix = registrationMatrix.value
@@ -541,6 +934,7 @@ function applyMsiLayerTransform() {
   msiImageLayer.setPosition(position, true)
   msiImageLayer.setWidth(width, true)
   msiImageLayer.setRotation(angle, true)
+  updateMsiImageOverlay()
 }
 
 async function renderMsiImage() {
@@ -630,6 +1024,12 @@ async function init() {
     viewer.addHandler('animation', updateCropOverlay)
     viewer.addHandler('animation-finish', updateCropOverlay)
     viewer.addHandler('resize', updateCropOverlay)
+    viewer.addHandler('animation', updateMsiImageOverlay)
+    viewer.addHandler('animation-finish', updateMsiImageOverlay)
+    viewer.addHandler('resize', updateMsiImageOverlay)
+    viewer.addHandler('animation', updateManualRegistrationFrame)
+    viewer.addHandler('animation-finish', updateManualRegistrationFrame)
+    viewer.addHandler('resize', updateManualRegistrationFrame)
 
     await initWsiLayer()
     await initMsiLayer()
@@ -717,6 +1117,13 @@ function destroy() {
   cropDraft.value = null
   cropOverlayRect.value = null
   cropDrag = null
+  manualRegistrationEditing.value = false
+  manualRegistrationSaving.value = false
+  manualRegistration.value = null
+  manualRegistrationFrame.value = null
+  manualRegistrationOriginalMatrix.value = null
+  manualRegistrationDrag = null
+  msiImageOverlay.value = null
   if (viewer) {
     viewer.destroy()
     viewer = null
@@ -730,12 +1137,16 @@ onMounted(() => {
   init()
   document.addEventListener('fullscreenchange', syncFullscreenState)
   window.addEventListener('resize', updateCropOverlay)
+  window.addEventListener('resize', updateMsiImageOverlay)
+  window.addEventListener('resize', updateManualRegistrationFrame)
 })
 
 onBeforeUnmount(() => {
   destroy()
   document.removeEventListener('fullscreenchange', syncFullscreenState)
   window.removeEventListener('resize', updateCropOverlay)
+  window.removeEventListener('resize', updateMsiImageOverlay)
+  window.removeEventListener('resize', updateManualRegistrationFrame)
 })
 
 watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], ([wsi, msi], [previousWsi, previousMsi]) => {
@@ -745,6 +1156,11 @@ watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], ([wsi, m
 })
 
 watch(msiOpacity, () => {
+  applyMsiLayerTransform()
+})
+
+watch(overlaid, () => {
+  if (!overlaid.value && manualRegistrationEditing.value) cancelManualRegistrationEdit()
   applyMsiLayerTransform()
 })
 
@@ -782,8 +1198,15 @@ function closeAll() {
         @click="closeAll"
       />
     </div>
-    <div ref="viewportEl" class="relative flex-1 bg-default">
+    <div ref="viewportEl" class="relative flex-1 overflow-hidden bg-default">
       <div ref="viewerEl" class="absolute inset-0" />
+      <img
+        v-if="msiImageUrl && msiImageOverlay"
+        :src="msiImageUrl"
+        class="pointer-events-none absolute left-0 top-0 z-[1] max-w-none origin-top-left select-none [image-rendering:pixelated]"
+        :style="msiImageOverlayStyle()"
+        draggable="false"
+      >
       <div
         v-if="cropEditing"
         class="pointer-events-auto absolute inset-0 z-20"
@@ -824,6 +1247,63 @@ function closeAll() {
             size="sm"
             :disabled="cropSaving"
             @click="cancelCropEdit"
+          />
+        </div>
+      </div>
+      <div
+        v-if="manualRegistrationEditing"
+        class="pointer-events-auto absolute inset-0 z-20"
+        @pointerdown.stop.prevent
+        @pointermove.stop.prevent="dragManualRegistration"
+        @pointerup.stop.prevent="endManualRegistrationDrag"
+        @pointercancel.stop.prevent="endManualRegistrationDrag"
+      >
+        <div
+          v-if="manualRegistrationFrame"
+          class="absolute origin-top-left border-2 border-secondary bg-secondary/10"
+          :style="manualRegistrationFrameStyle()"
+        >
+          <div class="absolute -top-8 left-1/2 h-8 border-l-2 border-secondary" />
+          <div
+            class="absolute -top-10 left-1/2 size-4 -translate-x-1/2 cursor-grab rounded-full border-2 border-secondary bg-default shadow"
+            @pointerdown.stop.prevent="beginManualRegistrationDrag($event, 'rotate')"
+          />
+          <div
+            v-for="edge in manualRegistrationEdges"
+            :key="edge.handle"
+            class="absolute bg-secondary/50"
+            :class="edge.class"
+            :style="manualRegistrationHandleStyle(edge.handle)"
+            @pointerdown.stop.prevent="beginManualRegistrationDrag($event, edge.handle)"
+          />
+          <div
+            v-for="corner in manualRegistrationCorners"
+            :key="corner.handle"
+            :class="[manualRegistrationHandleClass, corner.class]"
+            :style="manualRegistrationHandleStyle(corner.handle)"
+            @pointerdown.stop.prevent="beginManualRegistrationDrag($event, corner.handle)"
+          />
+          <div class="absolute inset-0 z-0 cursor-move" @pointerdown.stop.prevent="beginManualRegistrationDrag($event, 'move')" />
+        </div>
+        <div class="absolute bottom-3 inset-s-1/2 flex -translate-x-1/2 gap-1 rounded-md border border-default/80 bg-default/80 p-1 shadow-lg backdrop-blur-md">
+          <UButton
+            label="Save"
+            icon="i-lucide-check"
+            color="secondary"
+            variant="soft"
+            size="sm"
+            :loading="manualRegistrationSaving"
+            :disabled="manualRegistrationSaving"
+            @click="saveManualRegistrationEdit"
+          />
+          <UButton
+            label="Cancel"
+            icon="i-lucide-x"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            :disabled="manualRegistrationSaving"
+            @click="cancelManualRegistrationEdit"
           />
         </div>
       </div>
@@ -925,11 +1405,22 @@ function closeAll() {
               @click="registerMsi"
             />
           </UTooltip>
+          <UTooltip v-if="showMsi" text="Manual registration" :delay-duration="250">
+            <UButton
+              icon="i-lucide-scan"
+              :color="manualRegistrationEditing ? 'secondary' : 'neutral'"
+              :disabled="!overlaid || !registrationMatrix || manualRegistrationEditing"
+              :variant="manualRegistrationEditing ? 'soft' : 'ghost'"
+              size="sm"
+              square
+              @click="startManualRegistrationEdit"
+            />
+          </UTooltip>
           <UTooltip v-if="showMsi" :text="overlay ? 'Show separately' : 'Overlay'" :delay-duration="250">
             <UButton
               icon="carbon-overlay"
               :color="overlay ? 'secondary' : 'neutral'"
-              :disabled="!canOverlay"
+              :disabled="!canOverlay || manualRegistrationEditing"
               :variant="overlay ? 'soft' : 'ghost'"
               size="sm"
               square
