@@ -5,6 +5,7 @@ import type { FileType } from '~/types/filesystem'
 import type { Annotation, Label, MSIMetadata, WorkspaceSettings, WSIMetadata } from '~/types/images'
 
 const { state, setActive } = useWorkspace()
+const activity = useActivity()
 type Metadata = WSIMetadata | MSIMetadata
 type OptionalValue = Metadata['optional'][string]
 type ListedAnnotation = Annotation & { owner: FileType, filepath: string }
@@ -163,15 +164,20 @@ async function fetchMetadata() {
 
 async function saveOptional(key: string, value: string) {
   if (!key || !activeFilepath.value) return
-  metadata.value = await $fetch<Metadata>(`${metadataEndpoint}/optional`, {
-    method: 'POST',
-    query: { filepath: activeFilepath.value },
-    body: {
-      key,
-      value: coerceOptionalValue(value),
-    },
-  })
-  syncOptionalDraft(metadata.value)
+  const task = activity.startTask('Saving metadata')
+  try {
+    metadata.value = await $fetch<Metadata>(`${metadataEndpoint}/optional`, {
+      method: 'POST',
+      query: { filepath: activeFilepath.value },
+      body: {
+        key,
+        value: coerceOptionalValue(value),
+      },
+    })
+    syncOptionalDraft(metadata.value)
+  } finally {
+    activity.endTask(task)
+  }
 }
 
 async function addOptional() {
@@ -186,14 +192,19 @@ async function addOptional() {
 
 async function deleteOptional(key: string) {
   if (!activeFilepath.value) return
-  metadata.value = await $fetch<Metadata>(`${metadataEndpoint}/optional`, {
-    method: 'DELETE',
-    query: {
-      filepath: activeFilepath.value,
-      key,
-    },
-  })
-  syncOptionalDraft(metadata.value)
+  const task = activity.startTask('Deleting metadata')
+  try {
+    metadata.value = await $fetch<Metadata>(`${metadataEndpoint}/optional`, {
+      method: 'DELETE',
+      query: {
+        filepath: activeFilepath.value,
+        key,
+      },
+    })
+    syncOptionalDraft(metadata.value)
+  } finally {
+    activity.endTask(task)
+  }
 }
 
 async function fetchTags() {
@@ -214,25 +225,35 @@ async function fetchTags() {
 async function addTag() {
   const tag = newTag.value.trim()
   if (!tag || !activeFilepath.value) return
-  tags.value = await $fetch<string[]>(tagsEndpoint, {
-    method: 'POST',
-    query: { filepath: activeFilepath.value },
-    body: { tag },
-  })
-  newTag.value = ''
-  await nextTick()
-  newTagInput.value?.inputRef?.focus()
+  const task = activity.startTask('Saving tag')
+  try {
+    tags.value = await $fetch<string[]>(tagsEndpoint, {
+      method: 'POST',
+      query: { filepath: activeFilepath.value },
+      body: { tag },
+    })
+    newTag.value = ''
+    await nextTick()
+    newTagInput.value?.inputRef?.focus()
+  } finally {
+    activity.endTask(task)
+  }
 }
 
 async function deleteTag(tag: string) {
   if (!activeFilepath.value) return
-  tags.value = await $fetch<string[]>(tagsEndpoint, {
-    method: 'DELETE',
-    query: {
-      filepath: activeFilepath.value,
-      tag,
-    },
-  })
+  const task = activity.startTask('Deleting tag')
+  try {
+    tags.value = await $fetch<string[]>(tagsEndpoint, {
+      method: 'DELETE',
+      query: {
+        filepath: activeFilepath.value,
+        tag,
+      },
+    })
+  } finally {
+    activity.endTask(task)
+  }
 }
 
 async function fetchAnnotations() {
@@ -302,15 +323,20 @@ function labelForAnnotation(annotation: Annotation): Label {
 }
 
 async function updateAnnotation(annotation: ListedAnnotation, patch: Partial<Pick<Annotation, 'label' | 'notes' | 'export' | 'project'>>) {
-  const updated = await $fetch<Annotation[]>(`${annotationsEndpoint}/${annotation.id}`, {
-    method: 'PUT',
-    query: { filepath: annotation.filepath },
-    body: patch,
-  })
-  annotations.value = annotations.value
-    .filter(value => value.filepath !== annotation.filepath)
-    .concat(updated.map(value => ({ ...value, owner: annotation.owner, filepath: annotation.filepath })))
-  notifyAnnotationsChanged()
+  const task = activity.startTask('Updating annotation')
+  try {
+    const updated = await $fetch<Annotation[]>(`${annotationsEndpoint}/${annotation.id}`, {
+      method: 'PUT',
+      query: { filepath: annotation.filepath },
+      body: patch,
+    })
+    annotations.value = annotations.value
+      .filter(value => value.filepath !== annotation.filepath)
+      .concat(updated.map(value => ({ ...value, owner: annotation.owner, filepath: annotation.filepath })))
+    notifyAnnotationsChanged()
+  } finally {
+    activity.endTask(task)
+  }
 }
 
 function updateAnnotationLabel(annotation: ListedAnnotation, value: string | number | boolean | Record<string, unknown> | undefined) {
@@ -318,14 +344,19 @@ function updateAnnotationLabel(annotation: ListedAnnotation, value: string | num
 }
 
 async function deleteAnnotation(annotation: ListedAnnotation) {
-  const updated = await $fetch<Annotation[]>(`${annotationsEndpoint}/${annotation.id}`, {
-    method: 'DELETE',
-    query: { filepath: annotation.filepath },
-  })
-  annotations.value = annotations.value
-    .filter(value => value.filepath !== annotation.filepath)
-    .concat(updated.map(value => ({ ...value, owner: annotation.owner, filepath: annotation.filepath })))
-  notifyAnnotationsChanged()
+  const task = activity.startTask('Deleting annotation')
+  try {
+    const updated = await $fetch<Annotation[]>(`${annotationsEndpoint}/${annotation.id}`, {
+      method: 'DELETE',
+      query: { filepath: annotation.filepath },
+    })
+    annotations.value = annotations.value
+      .filter(value => value.filepath !== annotation.filepath)
+      .concat(updated.map(value => ({ ...value, owner: annotation.owner, filepath: annotation.filepath })))
+    notifyAnnotationsChanged()
+  } finally {
+    activity.endTask(task)
+  }
 }
 
 watch(

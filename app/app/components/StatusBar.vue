@@ -7,6 +7,8 @@ const emit = defineEmits<{
   'update:logsOpen': [value: boolean]
 }>()
 
+const activity = useActivity()
+
 interface SystemMetrics {
   cpu: {
     usage_percent: number
@@ -47,8 +49,8 @@ onUnmounted(() => {
 <template>
   <footer class="flex h-7.5 shrink-0 items-center gap-4 border-t border-default bg-muted px-3 text-[11.5px] text-muted">
     <span class="flex items-center gap-1.5">
-      <UIcon name="material-symbols-circle" class="animate-pulse text-success size-2" />
-      Ready
+      <UIcon name="material-symbols-circle" class="animate-pulse size-2" :class="activity.active.value ? 'text-warning' : 'text-success'" />
+      <span>{{ activity.message }}<span v-if="activity.active.value" class="status-ellipsis">...</span></span>
     </span>
     <div class="ms-auto flex items-center gap-2">
       <span class="font-data text-xs text-dimmed">CPU</span>
@@ -69,3 +71,19 @@ onUnmounted(() => {
     </UButton>
   </footer>
 </template>
+
+<style scoped>
+.status-ellipsis {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  width: 0;
+  animation: status-ellipsis 1.1s steps(5, end) infinite;
+}
+
+@keyframes status-ellipsis {
+  to {
+    width: 1.5em;
+  }
+}
+</style>

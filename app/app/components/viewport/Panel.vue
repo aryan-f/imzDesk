@@ -18,6 +18,7 @@ type ManualRegistrationFrame = { origin: Point, width: number, height: number, a
 type MsiImageOverlay = { width: number, height: number, transform: string, opacity: number }
 
 const { state, setActive, closeFile } = useWorkspace()
+const activity = useActivity()
 
 const props = withDefaults(defineProps<{
   wsi?: string | null
@@ -140,7 +141,6 @@ let osd: typeof OpenSeadragon | null = null
 let viewer: OpenSeadragon.Viewer | null = null
 let wsiImageLayer: OpenSeadragon.TiledImage | null = null
 let msiImageLayer: OpenSeadragon.TiledImage | null = null
-let msiRenderTimer: ReturnType<typeof setTimeout> | null = null
 let cropDrag: {
   handle: CropHandle
   pointerId: number
@@ -442,6 +442,7 @@ function cancelCropEdit() {
 async function saveCropEdit() {
   if (!wsiFilepath.value || !cropDraft.value) return
   cropSaving.value = true
+  const task = activity.startTask('Saving crop')
   try {
     cropRect.value = await $fetch<CropRect | null>('/api/images/metadata/crop', {
       method: 'PUT',
@@ -455,6 +456,7 @@ async function saveCropEdit() {
     cropEnabled.value = true
     applyCrop()
   } finally {
+    activity.endTask(task)
     cropSaving.value = false
   }
 }
@@ -934,25 +936,30 @@ async function saveAnnotationDraft() {
   const draft = annotationDraft.value
   const filepath = annotationFilepath(draft.owner)
   if (!filepath) return
-  const saved = await $fetch<Annotation[]>(annotationsEndpoint, {
-    method: 'POST',
-    query: { filepath },
-    body: {
-      label: defaultLabel().id,
-      kind: draft.kind,
-      notes: '',
-      export: true,
-      project: true,
-      coordinates: draft.points.map(point => [point.x, point.y]),
-    },
-  })
-  annotations.value = annotations.value
-    .filter(annotation => annotation.filepath !== filepath)
-    .concat(saved.map(annotation => ({ ...annotation, owner: draft.owner, filepath })))
-  annotationDraft.value = null
-  annotationHoverPoint.value = null
-  updateRenderedAnnotations()
-  window.dispatchEvent(new CustomEvent('imzdesk:annotations-changed'))
+  const task = activity.startTask('Saving annotation')
+  try {
+    const saved = await $fetch<Annotation[]>(annotationsEndpoint, {
+      method: 'POST',
+      query: { filepath },
+      body: {
+        label: defaultLabel().id,
+        kind: draft.kind,
+        notes: '',
+        export: true,
+        project: true,
+        coordinates: draft.points.map(point => [point.x, point.y]),
+      },
+    })
+    annotations.value = annotations.value
+      .filter(annotation => annotation.filepath !== filepath)
+      .concat(saved.map(annotation => ({ ...annotation, owner: draft.owner, filepath })))
+    annotationDraft.value = null
+    annotationHoverPoint.value = null
+    updateRenderedAnnotations()
+    window.dispatchEvent(new CustomEvent('imzdesk:annotations-changed'))
+  } finally {
+    activity.endTask(task)
+  }
 }
 
 function beginAnnotationDraw(event: PointerEvent) {
@@ -1125,6 +1132,7 @@ async function saveManualRegistrationEdit() {
   const matrix = manualStateToRegistrationMatrix(manualRegistration.value)
   if (!matrix) return
   manualRegistrationSaving.value = true
+  const task = activity.startTask('Saving transform')
   try {
     await $fetch<boolean>('/api/images/msi/registered/transform', {
       method: 'PUT',
@@ -1143,6 +1151,7 @@ async function saveManualRegistrationEdit() {
     manualRegistrationDrag = null
     applyMsiLayerTransform()
   } finally {
+    activity.endTask(task)
     manualRegistrationSaving.value = false
   }
 }
@@ -1429,47 +1438,40 @@ async function renderMsiImage() {
   if (!msiFilepath.value) return
 
   msiRendering.value = true
-  if (overlaid.value) await loadRegistrationMatrix()
-  const response = await $fetch<Blob>('/api/images/msi/image', {
-    method: 'POST',
-    body: {
-      filepath: msiFilepath.value,
-      preprocessing: msiDisplay.value.preprocessing,
-      cubing: msiDisplay.value.cubing,
-      reduction: msiDisplay.value.reduction,
-    },
-    responseType: 'blob',
-  })
+  const task = activity.startTask('Generating image')
+  try {
+    if (overlaid.value) await loadRegistrationMatrix()
+    const response = await $fetch<Blob>('/api/images/msi/image', {
+      method: 'POST',
+      body: {
+        filepath: msiFilepath.value,
+        preprocessing: msiDisplay.value.preprocessing,
+        cubing: msiDisplay.value.cubing,
+        reduction: msiDisplay.value.reduction,
+      },
+      responseType: 'blob',
+    })
 
-  const imageUrl = URL.createObjectURL(response)
-  releaseMsiImage()
-  msiImageUrl.value = imageUrl
-  displayMsiImage(imageUrl)
-  msiRendering.value = false
+    const imageUrl = URL.createObjectURL(response)
+    releaseMsiImage()
+    msiImageUrl.value = imageUrl
+    displayMsiImage(imageUrl)
+  } finally {
+    activity.endTask(task)
+    msiRendering.value = false
+  }
 }
 
 function queueMsiImageRender() {
-  if (msiRenderTimer) clearTimeout(msiRenderTimer)
   if (!msiFilepath.value) {
     releaseMsiImage()
     msiRendering.value = false
     return
   }
-  msiRendering.value = true
-  msiRenderTimer = setTimeout(() => {
-    msiRenderTimer = null
-    renderMsiImage().finally(() => {
-      if (!msiRenderTimer) msiRendering.value = false
-    })
-  }, 250)
+  renderMsiImage()
 }
 
 function cancelMsiImageRender() {
-  if (msiRenderTimer) {
-    clearTimeout(msiRenderTimer)
-    msiRenderTimer = null
-    msiRendering.value = false
-  }
 }
 
 async function initMsiLayer() {
@@ -1568,6 +1570,7 @@ function toggleOverlay() {
 async function registerMsi() {
   if (!msiFilepath.value || !fixedWsiFilepath.value) return
   registering.value = true
+  const task = activity.startTask('Registering')
   try {
     const registered = await $fetch<boolean>('/api/images/msi/register', {
       method: 'POST',
@@ -1584,6 +1587,7 @@ async function registerMsi() {
       registrationMatrix.value = null
     }
   } finally {
+    activity.endTask(task)
     registering.value = false
   }
 }

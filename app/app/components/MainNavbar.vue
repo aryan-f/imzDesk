@@ -10,6 +10,7 @@ const menuItems = [
 const { data: infrastructure } = await useFetch<SystemInfrastructure>('/api/system/infra', {
   default: () => ({ workspace: '' }),
 })
+const activity = useActivity()
 
 const settingsEndpoint = '/api/workspace/settings'
 const { data: workspaceSettings } = await useFetch<WorkspaceSettings>(settingsEndpoint, {
@@ -53,6 +54,7 @@ function deleteLabel(id: string) {
 
 async function saveWorkspaceSettings() {
   settingsSaving.value = true
+  const task = activity.startTask('Saving workspace settings')
   try {
     workspaceSettings.value = await $fetch<WorkspaceSettings>(settingsEndpoint, {
       method: 'POST',
@@ -60,6 +62,7 @@ async function saveWorkspaceSettings() {
     })
     window.dispatchEvent(new CustomEvent('imzdesk:workspace-settings-changed'))
   } finally {
+    activity.endTask(task)
     settingsSaving.value = false
   }
 }
