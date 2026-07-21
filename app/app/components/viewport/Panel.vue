@@ -1972,7 +1972,7 @@ function closeAll() {
               @click="registerMsi"
             />
           </UTooltip>
-          <UTooltip v-if="showMsi" text="Manual registration" :delay-duration="250">
+          <UTooltip v-if="showMsi" text="Adjust registration" :delay-duration="250">
             <UButton
               icon="i-lucide-scan"
               :color="manualRegistrationEditing ? 'secondary' : 'neutral'"
