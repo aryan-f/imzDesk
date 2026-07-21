@@ -272,11 +272,17 @@ function updateScaleHint() {
   const candidates = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]
   const targetWidth = 140
   const minimumWidth = 60
-  const selected = candidates.findLast(candidate => candidate / source.mpp * screenPixelsPerImagePixel <= targetWidth) ?? candidates[0]!
-  const width = selected / source.mpp * screenPixelsPerImagePixel
+  const candidateWidths = candidates.map(value => ({
+    value,
+    width: value / source.mpp * screenPixelsPerImagePixel,
+  }))
+  const selected = candidateWidths
+    .filter(candidate => candidate.width >= minimumWidth && candidate.width <= targetWidth)
+    .at(-1)
+    ?? candidateWidths.toSorted((a, b) => Math.abs(a.width - targetWidth) - Math.abs(b.width - targetWidth))[0]!
   scaleHint.value = {
-    width: Math.max(width, minimumWidth),
-    label: formatScaleHint(selected),
+    width: selected.width,
+    label: formatScaleHint(selected.value),
   }
 }
 
