@@ -327,7 +327,7 @@ async function loadWsiMetadata(filepath = fixedWsiFilepath.value) {
   wsiMeta.value = await $fetch<WSIMetadata>('/api/images/metadata/all', {
     query: { filepath },
   })
-  cropRect.value = wsiMeta.value.crop
+  cropRect.value = showWsi.value ? wsiMeta.value.crop : null
 }
 
 async function loadMsiMetadata() {
@@ -389,7 +389,7 @@ function fitToCrop(immediately = false) {
 
 function resetView() {
   if (!viewer) return
-  if (cropRect.value) {
+  if (showWsi.value && cropRect.value) {
     fitToCrop()
     return
   }
