@@ -16,6 +16,7 @@ type ManualRegistrationHandle = 'move' | 'rotate' | 'n' | 's' | 'e' | 'w' | 'nw'
 type ManualRegistrationState = { origin: Point, xVector: Point, yVector: Point }
 type ManualRegistrationFrame = { origin: Point, width: number, height: number, angle: number }
 type MsiImageOverlay = { width: number, height: number, transform: string, opacity: number }
+type ScaleHint = { width: number, label: string }
 
 const { state, setActive, closeFile } = useWorkspace()
 const activity = useActivity()
@@ -76,6 +77,7 @@ const manualRegistration = ref<ManualRegistrationState | null>(null)
 const manualRegistrationFrame = ref<ManualRegistrationFrame | null>(null)
 const manualRegistrationOriginalMatrix = ref<number[][] | null>(null)
 const msiImageOverlay = ref<MsiImageOverlay | null>(null)
+const scaleHint = ref<ScaleHint | null>(null)
 
 const viewerEl = ref<HTMLElement | null>(null)
 const viewportEl = ref<HTMLElement | null>(null)
@@ -235,6 +237,47 @@ function formatMpp(value: WSIMetadata['mpp'] | MSIMetadata['mpp'] | undefined) {
 function formatSize(value: WSIMetadata['size'] | MSIMetadata['size'] | undefined) {
   if (!value) return null
   return `${value.x.toFixed(2)} × ${value.y.toFixed(2)} cm`
+}
+
+function formatScaleHint(value: number) {
+  if (value < 1000) return `${Number(value.toPrecision(3))} µm`
+  return `${Number((value / 1000).toPrecision(3))} mm`
+}
+
+function scaleHintSource() {
+  if (showWsi.value && wsiImageLayer && wsiMeta.value?.mpp) return { item: wsiImageLayer, mpp: wsiMeta.value.mpp.x }
+  if (showMsi.value && msiImageLayer && msiMeta.value?.mpp) return { item: msiImageLayer, mpp: msiMeta.value.mpp.x }
+  return null
+}
+
+function updateScaleHint() {
+  if (!viewer || !osd) {
+    scaleHint.value = null
+    return
+  }
+  const source = scaleHintSource()
+  if (!source) {
+    scaleHint.value = null
+    return
+  }
+  const start = source.item.imageToViewportCoordinates(new osd.Point(0, 0))
+  const stop = source.item.imageToViewportCoordinates(new osd.Point(1, 0))
+  const startPixel = viewer.viewport.pixelFromPoint(start, true)
+  const stopPixel = viewer.viewport.pixelFromPoint(stop, true)
+  const screenPixelsPerImagePixel = Math.abs(stopPixel.x - startPixel.x)
+  if (!screenPixelsPerImagePixel) {
+    scaleHint.value = null
+    return
+  }
+  const candidates = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]
+  const targetWidth = 140
+  const minimumWidth = 60
+  const selected = candidates.findLast(candidate => candidate / source.mpp * screenPixelsPerImagePixel <= targetWidth) ?? candidates[0]!
+  const width = selected / source.mpp * screenPixelsPerImagePixel
+  scaleHint.value = {
+    width: Math.max(width, minimumWidth),
+    label: formatScaleHint(selected),
+  }
 }
 
 async function loadWorkspaceSettings() {
@@ -1342,6 +1385,7 @@ async function initWsiLayer() {
       viewerReady.value = true
       applyCrop()
       fitToCrop(true)
+      updateScaleHint()
     },
   })
 }
@@ -1364,6 +1408,7 @@ function releaseMsiImage() {
   if (!msiImageUrl.value) return
   URL.revokeObjectURL(msiImageUrl.value)
   msiImageUrl.value = null
+  updateScaleHint()
 }
 
 function displayMsiImage(url: string) {
@@ -1386,6 +1431,7 @@ function displayMsiImage(url: string) {
         viewerReady.value = true
         currentViewer.viewport.goHome(true)
       }
+      updateScaleHint()
     },
   })
 }
@@ -1395,6 +1441,7 @@ function applyMsiLayerTransform() {
   msiImageLayer.setOpacity(overlaid.value ? 0 : 1)
   updateMsiImageOverlay()
   updateRenderedAnnotations()
+  updateScaleHint()
   if (!overlaid.value || !registrationMatrix.value || !wsiImageLayer || !wsiMeta.value || !msiMeta.value?.mpp) return
 
   const matrix = registrationMatrix.value
@@ -1432,6 +1479,7 @@ function applyMsiLayerTransform() {
   msiImageLayer.setRotation(angle, true)
   updateMsiImageOverlay()
   updateRenderedAnnotations()
+  updateScaleHint()
 }
 
 async function renderMsiImage() {
@@ -1529,6 +1577,9 @@ async function init() {
     viewer.addHandler('animation', updateRenderedAnnotations)
     viewer.addHandler('animation-finish', updateRenderedAnnotations)
     viewer.addHandler('resize', updateRenderedAnnotations)
+    viewer.addHandler('animation', updateScaleHint)
+    viewer.addHandler('animation-finish', updateScaleHint)
+    viewer.addHandler('resize', updateScaleHint)
 
     await loadWorkspaceSettings()
     await initWsiLayer()
@@ -1631,6 +1682,7 @@ function destroy() {
   manualRegistrationOriginalMatrix.value = null
   manualRegistrationDrag = null
   msiImageOverlay.value = null
+  scaleHint.value = null
   if (viewer) {
     viewer.destroy()
     viewer = null
@@ -1647,6 +1699,7 @@ onMounted(() => {
   window.addEventListener('resize', updateMsiImageOverlay)
   window.addEventListener('resize', updateManualRegistrationFrame)
   window.addEventListener('resize', updateRenderedAnnotations)
+  window.addEventListener('resize', updateScaleHint)
   window.addEventListener('imzdesk:annotations-changed', fetchAnnotations)
   window.addEventListener('imzdesk:workspace-settings-changed', loadWorkspaceSettings)
   window.addEventListener('keydown', handleAnnotationEscape)
@@ -1659,6 +1712,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', updateMsiImageOverlay)
   window.removeEventListener('resize', updateManualRegistrationFrame)
   window.removeEventListener('resize', updateRenderedAnnotations)
+  window.removeEventListener('resize', updateScaleHint)
   window.removeEventListener('imzdesk:annotations-changed', fetchAnnotations)
   window.removeEventListener('imzdesk:workspace-settings-changed', loadWorkspaceSettings)
   window.removeEventListener('keydown', handleAnnotationEscape)
@@ -1997,6 +2051,16 @@ function closeAll() {
           <div v-if="overlaid" class="flex w-28 items-center gap-2 px-1">
             <UIcon name="i-lucide-blend" class="size-4 text-dimmed" />
             <USlider v-model="msiOpacity" :min="0" :max="1" :step="0.05" color="secondary" />
+          </div>
+        </div>
+        <div
+          v-if="scaleHint"
+          class="absolute bottom-3 rounded-md bg-default/70 px-2 py-1 font-data text-[11px] text-white shadow-lg backdrop-blur-md"
+          :class="showWsi ? 'inset-e-3' : 'inset-s-3'"
+        >
+          <div class="flex flex-col items-center gap-0.5">
+            <div class="h-2 border-x border-b border-white" :style="{ width: `${scaleHint.width}px` }" />
+            <div>{{ scaleHint.label }}</div>
           </div>
         </div>
       </div>
