@@ -201,7 +201,7 @@ const wsiMeta = ref<WSIMetadata | null>(null)
 const msiMeta = ref<MSIMetadata | null>(null)
 
 const metadataLabel = computed(() => {
-  if (wsiMeta.value) {
+  if (showWsi.value && wsiMeta.value) {
     return [
       wsiMeta.value.vendor ?? 'Unknown vendor',
       formatObjectivePower(wsiMeta.value.objective_power),
