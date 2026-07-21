@@ -40,3 +40,23 @@ export interface MSIDisplay {
     colormap: string
   }
 }
+
+export interface Annotation {
+  id: string
+  label: string
+  kind: 'box' | 'polygon' | 'freehand'
+  notes: string
+  export: boolean
+  project: boolean
+  coordinates: number[][]
+}
+
+export interface Label {
+  id: string
+  name: string
+  color: string
+}
+
+export interface WorkspaceSettings {
+  labels: Label[]
+}

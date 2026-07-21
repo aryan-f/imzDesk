@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import type { ComponentPublicInstance } from 'vue'
 import type { TabsItem } from '@nuxt/ui'
 import type { FileType } from '~/types/filesystem'
-import type { MSIMetadata, WSIMetadata } from '~/types/images'
+import type { Annotation, Label, MSIMetadata, WorkspaceSettings, WSIMetadata } from '~/types/images'
 
-const { state } = useWorkspace()
+const { state, setActive } = useWorkspace()
 type Metadata = WSIMetadata | MSIMetadata
 type OptionalValue = Metadata['optional'][string]
+type ListedAnnotation = Annotation & { owner: FileType, filepath: string }
+type AnnotationSelectionEvent = CustomEvent<{ owner: FileType, id: string }>
 
 const activeColor = computed(() => {
   switch (state.value.active) {
@@ -46,6 +49,14 @@ const tagsLoading = ref(false)
 const newTag = ref('')
 const newTagInput = ref<{ inputRef?: HTMLInputElement } | null>(null)
 const tagsEndpoint = '/api/images/tags'
+const annotations = ref<ListedAnnotation[]>([])
+const annotationsLoading = ref(false)
+const annotationsEndpoint = '/api/images/annotations'
+const workspaceSettingsEndpoint = '/api/workspace/settings'
+const workspaceSettings = ref<WorkspaceSettings>({ labels: [] })
+const focusedAnnotationId = ref<string | null>(null)
+const pendingAnnotationFocus = ref<{ owner: FileType, id: string } | null>(null)
+const annotationRows = new Map<string, HTMLElement>()
 
 const requiredRows = computed(() => {
   if (!metadata.value || !state.value.active) return []
@@ -67,6 +78,22 @@ const requiredRows = computed(() => {
 const optionalEntries = computed(() => Object.entries(optionalDraft.value))
 const metadataRowClass = 'grid grid-cols-[7.5rem_1fr] gap-2 border-b border-default/40 pr-5 text-sm leading-6'
 const tagBadgeClass = 'inline-flex h-7 max-w-full items-center gap-1 rounded-full border px-2 text-sm leading-none'
+
+function notifyAnnotationsChanged() {
+  window.dispatchEvent(new CustomEvent('imzdesk:annotations-changed'))
+}
+
+function setAnnotationRowRef(id: string, element: Element | ComponentPublicInstance | null) {
+  if (element instanceof HTMLElement) {
+    annotationRows.set(id, element)
+  } else {
+    annotationRows.delete(id)
+  }
+}
+
+function annotationRowRef(id: string) {
+  return (element: Element | ComponentPublicInstance | null) => setAnnotationRowRef(id, element)
+}
 
 function tagColorStyle(tag: string) {
   const namespace = tag.split('.')[0] || tag
@@ -208,6 +235,99 @@ async function deleteTag(tag: string) {
   })
 }
 
+async function fetchAnnotations() {
+  if (!activeFilepath.value || !state.value.active) {
+    annotations.value = []
+    return
+  }
+  annotationsLoading.value = true
+  try {
+    const values = await $fetch<Annotation[]>(`${annotationsEndpoint}/all`, {
+      query: { filepath: activeFilepath.value },
+    })
+    annotations.value = values.map(annotation => ({
+      ...annotation,
+      owner: state.value.active!,
+      filepath: activeFilepath.value!,
+    }))
+  } finally {
+    annotationsLoading.value = false
+  }
+}
+
+async function focusAnnotation(owner: FileType, id: string) {
+  tab.value = 'annotations'
+  if (state.value.active !== owner) setActive(owner)
+  pendingAnnotationFocus.value = { owner, id }
+  await nextTick()
+  await fetchAnnotations()
+  await nextTick()
+  const row = annotationRows.get(id)
+  if (!row) return
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  focusedAnnotationId.value = id
+  window.setTimeout(() => {
+    if (focusedAnnotationId.value === id) focusedAnnotationId.value = null
+  }, 900)
+}
+
+function handleAnnotationSelected(event: Event) {
+  const { owner, id } = (event as AnnotationSelectionEvent).detail
+  if (!owner || !id) return
+  focusAnnotation(owner, id)
+}
+
+function annotationKindLabel(kind: Annotation['kind']) {
+  if (kind === 'freehand') return 'Freehand'
+  if (kind === 'polygon') return 'Polygon'
+  return 'Box'
+}
+
+async function loadWorkspaceSettings() {
+  workspaceSettings.value = await $fetch<WorkspaceSettings>(workspaceSettingsEndpoint)
+}
+
+const labelOptions = computed(() => workspaceSettings.value.labels.map(label => ({
+  label: label.name,
+  value: label.id,
+  color: label.color,
+})))
+
+function labelForAnnotation(annotation: Annotation): Label {
+  return workspaceSettings.value.labels.find(label => label.id === annotation.label) ?? {
+    id: annotation.label,
+    name: annotation.label,
+    color: '#64748b',
+  }
+}
+
+async function updateAnnotation(annotation: ListedAnnotation, patch: Partial<Pick<Annotation, 'label' | 'notes' | 'export' | 'project'>>) {
+  const updated = await $fetch<Annotation[]>(`${annotationsEndpoint}/${annotation.id}`, {
+    method: 'PUT',
+    query: { filepath: annotation.filepath },
+    body: patch,
+  })
+  annotations.value = annotations.value
+    .filter(value => value.filepath !== annotation.filepath)
+    .concat(updated.map(value => ({ ...value, owner: annotation.owner, filepath: annotation.filepath })))
+  notifyAnnotationsChanged()
+}
+
+function updateAnnotationLabel(annotation: ListedAnnotation, value: string | number | boolean | Record<string, unknown> | undefined) {
+  if (typeof value === 'string') updateAnnotation(annotation, { label: value })
+}
+
+async function deleteAnnotation(annotation: ListedAnnotation) {
+  const updated = await $fetch<Annotation[]>(`${annotationsEndpoint}/${annotation.id}`, {
+    method: 'DELETE',
+    query: { filepath: annotation.filepath },
+  })
+  annotations.value = annotations.value
+    .filter(value => value.filepath !== annotation.filepath)
+    .concat(updated.map(value => ({ ...value, owner: annotation.owner, filepath: annotation.filepath })))
+  notifyAnnotationsChanged()
+}
+
 watch(
   () => [state.value.active, activeFilepath.value] as [FileType | null, string | null],
   fetchMetadata,
@@ -221,6 +341,31 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  () => [state.value.active, activeFilepath.value, tab.value] as [FileType | null, string | null, string],
+  () => {
+    if (tab.value === 'annotations') fetchAnnotations()
+  },
+  { immediate: true },
+)
+
+function refreshAnnotations() {
+  if (tab.value === 'annotations') fetchAnnotations()
+}
+
+onMounted(() => {
+  loadWorkspaceSettings()
+  window.addEventListener('imzdesk:annotations-changed', refreshAnnotations)
+  window.addEventListener('imzdesk:annotation-selected', handleAnnotationSelected)
+  window.addEventListener('imzdesk:workspace-settings-changed', loadWorkspaceSettings)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('imzdesk:annotations-changed', refreshAnnotations)
+  window.removeEventListener('imzdesk:annotation-selected', handleAnnotationSelected)
+  window.removeEventListener('imzdesk:workspace-settings-changed', loadWorkspaceSettings)
+})
 </script>
 
 <template>
@@ -315,6 +460,50 @@ watch(
             />
             <UButton icon="i-lucide-plus" :color="activeColor" variant="ghost" size="xs" square class="size-4 p-0" @click="addTag" />
           </div>
+        </div>
+      </template>
+      <template v-else-if="tab === 'annotations'">
+        <div v-if="annotations.length" class="space-y-2">
+          <div
+            v-for="annotation in annotations"
+            :key="`${annotation.owner}-${annotation.id}`"
+            :ref="annotationRowRef(annotation.id)"
+            class="space-y-1.5 rounded-md border p-2 transition-colors"
+            :class="focusedAnnotationId === annotation.id ? 'border-default bg-white/70 dark:bg-white/10' : 'border-default/70 bg-default/60'"
+          >
+            <div class="flex items-center gap-2">
+              <UBadge :label="annotationKindLabel(annotation.kind)" :color="activeColor" variant="soft" size="sm" />
+              <div class="flex-1" />
+              <UButton icon="i-lucide-trash-2" color="neutral" variant="ghost" size="xs" square class="size-3.5 p-0 [&_svg]:size-3" @click="deleteAnnotation(annotation)" />
+            </div>
+            <div class="grid grid-cols-[2.75rem_1fr] items-center gap-x-2 gap-y-1 text-sm leading-6">
+              <div class="text-muted">
+                Label
+              </div>
+              <USelect :model-value="annotation.label" :items="labelOptions" size="sm" class="font-data" @update:model-value="updateAnnotationLabel(annotation, $event)">
+                <template #trailing>
+                  <div class="relative size-4 overflow-hidden rounded border border-default">
+                    <div class="absolute inset-0" :style="{ backgroundColor: labelForAnnotation(annotation).color }" />
+                  </div>
+                </template>
+              </USelect>
+              <div class="text-muted">
+                Notes
+              </div>
+              <UInput :model-value="annotation.notes" size="sm" class="font-data" @change="updateAnnotation(annotation, { notes: ($event.target as HTMLInputElement).value })" />
+              <div class="text-muted">
+                Project
+              </div>
+              <USwitch :model-value="annotation.project" :color="annotation.owner === 'WSI' ? 'primary' : 'secondary'" @update:model-value="updateAnnotation(annotation, { project: $event })" />
+              <div class="text-muted">
+                Export
+              </div>
+              <USwitch :model-value="annotation.export" :color="annotation.owner === 'WSI' ? 'primary' : 'secondary'" @update:model-value="updateAnnotation(annotation, { export: $event })" />
+            </div>
+          </div>
+        </div>
+        <div v-else class="py-1 text-sm text-muted">
+          No annotations
         </div>
       </template>
       <USkeleton v-else class="h-full min-h-48 overflow-hidden" />

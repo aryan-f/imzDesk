@@ -1,1 +1,1 @@
-from . import metadata, msi
+from . import annotations, metadata, msi

@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import type OpenSeadragon from 'openseadragon'
 import type { TileSource } from 'openseadragon'
-import type { MSIDisplay, MSIMetadata, WSIMetadata } from '~/types/images'
+import type { Annotation, Label, MSIDisplay, MSIMetadata, WorkspaceSettings, WSIMetadata } from '~/types/images'
 
 type CropRect = { x: number, y: number, width: number, height: number }
 type CropHandle = 'move' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
 type Point = { x: number, y: number }
+type AnnotationKind = Annotation['kind']
+type AnnotationOwner = 'WSI' | 'MSI'
+type AnnotationDraft = { kind: AnnotationKind, owner: AnnotationOwner, points: Point[] }
+type AnnotationDrag = { pointerId: number, moved: boolean }
+type ListedAnnotation = Annotation & { owner: AnnotationOwner, filepath: string }
+type RenderedAnnotation = { id: string, annotationId: string, owner: AnnotationOwner, name: string, path: string, color: string, fill: string, fillOpacity: number, label: Point }
 type ManualRegistrationHandle = 'move' | 'rotate' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
 type ManualRegistrationState = { origin: Point, xVector: Point, yVector: Point }
 type ManualRegistrationFrame = { origin: Point, width: number, height: number, angle: number }
@@ -50,12 +56,19 @@ const annotationTools = [
 ]
 
 const activeAnnotationTool = ref('Select')
+const annotationDraft = ref<AnnotationDraft | null>(null)
+const annotationHoverPoint = ref<Point | null>(null)
+const annotations = ref<ListedAnnotation[]>([])
+const renderedAnnotations = ref<RenderedAnnotation[]>([])
 const isFullscreen = ref(false)
 const msiImageUrl = ref<string | null>(null)
 const msiRendering = ref(false)
 const msiOpacity = ref(0.65)
 const registrationMatrix = ref<number[][] | null>(null)
 const registering = ref(false)
+const annotationsEndpoint = '/api/images/annotations'
+const workspaceSettingsEndpoint = '/api/workspace/settings'
+const workspaceSettings = ref<WorkspaceSettings>({ labels: [] })
 const manualRegistrationEditing = ref(false)
 const manualRegistrationSaving = ref(false)
 const manualRegistration = ref<ManualRegistrationState | null>(null)
@@ -135,6 +148,13 @@ let cropDrag: {
   startY: number
   startRect: { left: number, top: number, width: number, height: number }
 } | null = null
+let annotationDrag: AnnotationDrag | null = null
+let rightPanDrag: {
+  pointerId: number
+  startX: number
+  startY: number
+  startCenter: Point
+} | null = null
 let manualRegistrationDrag: {
   handle: ManualRegistrationHandle
   pointerId: number
@@ -159,6 +179,11 @@ function makeGetTileUrl(filepath: string) {
 
 const msiFilepath = computed(() => {
   if (!props.msi || !props.displayMsi) return null
+  return `${state.value.dirpath}/${props.msi}`
+})
+
+const linkedMsiFilepath = computed(() => {
+  if (!props.msi) return null
   return `${state.value.dirpath}/${props.msi}`
 })
 
@@ -212,11 +237,31 @@ function formatSize(value: WSIMetadata['size'] | MSIMetadata['size'] | undefined
   return `${value.x.toFixed(2)} × ${value.y.toFixed(2)} cm`
 }
 
-async function buildTileSource(filepath: string) {
-  wsiMeta.value = await $fetch<WSIMetadata>('/api/images/metadata/all', {
-    query: { filepath },
-  })
+async function loadWorkspaceSettings() {
+  workspaceSettings.value = await $fetch<WorkspaceSettings>(workspaceSettingsEndpoint)
+  updateRenderedAnnotations()
+}
 
+function labels() {
+  return workspaceSettings.value.labels
+}
+
+function defaultLabel() {
+  return labels()[0] ?? { id: 'positive', name: 'Positive', color: '#16a34a' }
+}
+
+function labelForAnnotation(annotation: Annotation): Label {
+  return labels().find(label => label.id === annotation.label) ?? {
+    id: annotation.label,
+    name: annotation.label,
+    color: '#64748b',
+  }
+}
+
+async function buildTileSource(filepath: string) {
+  await loadWsiMetadata(filepath)
+
+  if (!wsiMeta.value) throw new Error('WSI metadata is unavailable.')
   cropRect.value = wsiMeta.value.crop
 
   // A bare custom tile source: OSD derives level count from width/height the
@@ -230,20 +275,32 @@ async function buildTileSource(filepath: string) {
   }
 }
 
+async function loadWsiMetadata(filepath = fixedWsiFilepath.value) {
+  if (!filepath) {
+    wsiMeta.value = null
+    cropRect.value = null
+    return
+  }
+  wsiMeta.value = await $fetch<WSIMetadata>('/api/images/metadata/all', {
+    query: { filepath },
+  })
+  cropRect.value = wsiMeta.value.crop
+}
+
 async function loadMsiMetadata() {
-  if (!msiFilepath.value) {
+  if (!linkedMsiFilepath.value) {
     msiMeta.value = null
     return
   }
   msiMeta.value = await $fetch<MSIMetadata>('/api/images/metadata/all', {
-    query: { filepath: msiFilepath.value },
+    query: { filepath: linkedMsiFilepath.value },
   })
 }
 
 function registrationRequestParams() {
-  if (!msiFilepath.value || !fixedWsiFilepath.value) return null
+  if (!linkedMsiFilepath.value || !fixedWsiFilepath.value) return null
   return {
-    filepath: msiFilepath.value,
+    filepath: linkedMsiFilepath.value,
     reference: fixedWsiFilepath.value,
   }
 }
@@ -253,18 +310,19 @@ async function checkRegistration() {
   if (!query) {
     emit('update:registered', false)
     registrationMatrix.value = null
-    return
+    return false
   }
   const registered = await $fetch<boolean>('/api/images/msi/registered', {
     query,
   })
   emit('update:registered', registered)
   if (!registered) registrationMatrix.value = null
+  return registered
 }
 
 async function loadRegistrationMatrix() {
   const query = registrationRequestParams()
-  if (!query || !props.registered) {
+  if (!query) {
     registrationMatrix.value = null
     return null
   }
@@ -602,6 +660,433 @@ function msiImageOverlayStyle() {
   }
 }
 
+function activeAnnotationKind(): AnnotationKind | null {
+  if (activeAnnotationTool.value === 'Box') return 'box'
+  if (activeAnnotationTool.value === 'Polygon') return 'polygon'
+  if (activeAnnotationTool.value === 'Freehand') return 'freehand'
+  return null
+}
+
+function activeAnnotationOwner(): AnnotationOwner | null {
+  if (overlaid.value) {
+    if (state.value.active === 'WSI' && showWsi.value) return 'WSI'
+    if (state.value.active === 'MSI' && showMsi.value) return 'MSI'
+    return showWsi.value ? 'WSI' : 'MSI'
+  }
+  if (state.value.active === 'WSI' && showWsi.value) return 'WSI'
+  if (state.value.active === 'MSI' && showMsi.value) return 'MSI'
+  if (showWsi.value) return 'WSI'
+  if (showMsi.value) return 'MSI'
+  return null
+}
+
+function annotationFilepath(owner: AnnotationOwner) {
+  if (owner === 'WSI') return wsiFilepath.value ?? fixedWsiFilepath.value
+  return msiFilepath.value ?? linkedMsiFilepath.value
+}
+
+function annotationFiles() {
+  const files: { owner: AnnotationOwner, filepath: string }[] = []
+  if (fixedWsiFilepath.value) files.push({ owner: 'WSI', filepath: fixedWsiFilepath.value })
+  if (linkedMsiFilepath.value) files.push({ owner: 'MSI', filepath: linkedMsiFilepath.value })
+  return files
+}
+
+async function fetchAnnotations() {
+  const files = annotationFiles()
+  if (files.length === 0) {
+    annotations.value = []
+    updateRenderedAnnotations()
+    return
+  }
+  const results = await Promise.all(files.map(async file => ({
+    ...file,
+    annotations: await $fetch<Annotation[]>(`${annotationsEndpoint}/all`, {
+      query: { filepath: file.filepath },
+    }),
+  })))
+  annotations.value = results.flatMap(file => file.annotations.map(annotation => ({
+    ...annotation,
+    owner: file.owner,
+    filepath: file.filepath,
+  })))
+  updateRenderedAnnotations()
+}
+
+function pointerViewportPoint(event: PointerEvent) {
+  if (!viewer || !osd || !viewportEl.value) return null
+  const rect = viewportEl.value.getBoundingClientRect()
+  return viewer.viewport.pointFromPixel(new osd.Point(event.clientX - rect.left, event.clientY - rect.top), true)
+}
+
+function viewportPointToMsiImagePoint(point: Point): Point | null {
+  if (!viewer || !osd || !msiImageLayer) return null
+  if (!overlaid.value) {
+    const imagePoint = msiImageLayer.viewportToImageCoordinates(new osd.Point(point.x, point.y))
+    return { x: imagePoint.x, y: imagePoint.y }
+  }
+  if (!registrationMatrix.value) return null
+  const size = imageContentSize()
+  const state = registrationMatrixToManualState(registrationMatrix.value)
+  if (!size || !state) return null
+  const relative = subtractPoint(point, state.origin)
+  const determinant = state.xVector.x * state.yVector.y - state.xVector.y * state.yVector.x
+  if (determinant === 0) return null
+  const u = (relative.x * state.yVector.y - relative.y * state.yVector.x) / determinant
+  const v = (state.xVector.x * relative.y - state.xVector.y * relative.x) / determinant
+  return { x: u * size.x, y: v * size.y }
+}
+
+function viewportPointToAnnotationPoint(point: Point, owner: AnnotationOwner): Point | null {
+  if (!osd) return null
+  if (owner === 'WSI') {
+    if (!wsiImageLayer) return null
+    const imagePoint = wsiImageLayer.viewportToImageCoordinates(new osd.Point(point.x, point.y))
+    return { x: imagePoint.x, y: imagePoint.y }
+  }
+  return viewportPointToMsiImagePoint(point)
+}
+
+function pointerAnnotationPoint(event: PointerEvent, owner: AnnotationOwner): Point | null {
+  const viewportPoint = pointerViewportPoint(event)
+  if (!viewportPoint) return null
+  return viewportPointToAnnotationPoint({ x: viewportPoint.x, y: viewportPoint.y }, owner)
+}
+
+function annotationPointToElementPoint(point: Point, owner: AnnotationOwner): Point | null {
+  if (!viewer || !osd) return null
+  let viewportPoint: OpenSeadragon.Point | null = null
+  if (owner === 'WSI') {
+    if (!wsiImageLayer) return null
+    viewportPoint = wsiImageLayer.imageToViewportCoordinates(new osd.Point(point.x, point.y))
+  } else if (overlaid.value) {
+    if (!registrationMatrix.value) return null
+    const size = imageContentSize()
+    const state = registrationMatrixToManualState(registrationMatrix.value)
+    if (!size || !state) return null
+    viewportPoint = new osd.Point(
+      state.origin.x + state.xVector.x * point.x / size.x + state.yVector.x * point.y / size.y,
+      state.origin.y + state.xVector.y * point.x / size.x + state.yVector.y * point.y / size.y,
+    )
+  } else {
+    if (!msiImageLayer) return null
+    viewportPoint = msiImageLayer.imageToViewportCoordinates(new osd.Point(point.x, point.y))
+  }
+  const pixel = viewer.viewport.pixelFromPoint(viewportPoint, true)
+  return { x: pixel.x, y: pixel.y }
+}
+
+function annotationDraftElementPoints() {
+  if (!annotationDraft.value) return []
+  const points = annotationDraft.value.kind === 'polygon' && annotationHoverPoint.value
+    ? annotationDraft.value.points.concat(annotationHoverPoint.value)
+    : annotationDraft.value.points
+  return points
+    .map(point => annotationPointToElementPoint(point, annotationDraft.value!.owner))
+    .filter((point): point is Point => Boolean(point))
+}
+
+function annotationDraftPath() {
+  const points = annotationDraftElementPoints()
+  if (points.length === 0) return ''
+  if (annotationDraft.value?.kind === 'box' && points.length >= 2) {
+    const first = points[0]
+    const second = points[1]
+    if (!first || !second) return ''
+    const left = Math.min(first.x, second.x)
+    const top = Math.min(first.y, second.y)
+    const right = Math.max(first.x, second.x)
+    const bottom = Math.max(first.y, second.y)
+    return `M ${left} ${top} L ${right} ${top} L ${right} ${bottom} L ${left} ${bottom} Z`
+  }
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')
+  return annotationDraft.value?.kind === 'polygon' && annotationDraft.value.points.length >= 3 && points.length > 2 ? `${path} Z` : path
+}
+
+function annotationDraftFillOpacity() {
+  if (annotationDraft.value?.kind === 'polygon' && annotationDraft.value.points.length < 3) return 0
+  return 0.22
+}
+
+function annotationCoordinates(annotation: Annotation) {
+  return annotation.coordinates.map(([x = 0, y = 0]) => ({ x, y }))
+}
+
+function annotationPath(kind: AnnotationKind, points: Point[]) {
+  if (points.length === 0) return ''
+  if (kind === 'box' && points.length >= 2) {
+    const first = points[0]
+    const second = points[1]
+    if (!first || !second) return ''
+    const left = Math.min(first.x, second.x)
+    const top = Math.min(first.y, second.y)
+    const right = Math.max(first.x, second.x)
+    const bottom = Math.max(first.y, second.y)
+    return `M ${left} ${top} L ${right} ${top} L ${right} ${bottom} L ${left} ${bottom} Z`
+  }
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')
+  return kind === 'polygon' && points.length > 2 ? `${path} Z` : path
+}
+
+function annotationLabelPoint(points: Point[]): Point {
+  const left = Math.min(...points.map(point => point.x))
+  const top = Math.min(...points.map(point => point.y))
+  return { x: left, y: Math.max(top - 6, 12) }
+}
+
+function scaledRegistrationMatrix() {
+  if (!registrationMatrix.value || !wsiMeta.value?.mpp || !msiMeta.value?.mpp) return null
+  const row0 = registrationMatrix.value[0]
+  const row1 = registrationMatrix.value[1]
+  if (!row0 || !row1) return null
+  const xScale = msiMeta.value.mpp.x / wsiMeta.value.mpp.x
+  const yScale = msiMeta.value.mpp.y / wsiMeta.value.mpp.y
+  return {
+    a: (row0[0] ?? 1) * xScale,
+    b: (row0[1] ?? 0) * xScale,
+    c: (row0[2] ?? 0) * xScale,
+    d: (row1[0] ?? 0) * yScale,
+    e: (row1[1] ?? 1) * yScale,
+    f: (row1[2] ?? 0) * yScale,
+  }
+}
+
+function msiToWsiPoint(point: Point): Point | null {
+  const matrix = scaledRegistrationMatrix()
+  if (!matrix) return null
+  return {
+    x: matrix.a * point.x + matrix.b * point.y + matrix.c,
+    y: matrix.d * point.x + matrix.e * point.y + matrix.f,
+  }
+}
+
+function wsiToMsiPoint(point: Point): Point | null {
+  const matrix = scaledRegistrationMatrix()
+  if (!matrix) return null
+  const determinant = matrix.a * matrix.e - matrix.b * matrix.d
+  if (determinant === 0) return null
+  const x = point.x - matrix.c
+  const y = point.y - matrix.f
+  return {
+    x: (matrix.e * x - matrix.b * y) / determinant,
+    y: (-matrix.d * x + matrix.a * y) / determinant,
+  }
+}
+
+function annotationRenderOwner(annotation: ListedAnnotation): AnnotationOwner | null {
+  if (overlaid.value) return annotation.owner
+  if (showWsi.value) {
+    if (annotation.owner === 'WSI') return 'WSI'
+    return annotation.project && props.registered ? 'WSI' : null
+  }
+  if (showMsi.value) {
+    if (annotation.owner === 'MSI') return 'MSI'
+    return annotation.project && props.registered ? 'MSI' : null
+  }
+  return null
+}
+
+function annotationRenderPoints(annotation: ListedAnnotation, renderOwner: AnnotationOwner) {
+  return annotationCoordinates(annotation)
+    .map((point) => {
+      if (annotation.owner === renderOwner) return point
+      if (annotation.owner === 'MSI' && renderOwner === 'WSI') return msiToWsiPoint(point)
+      return wsiToMsiPoint(point)
+    })
+    .filter((point): point is Point => Boolean(point))
+}
+
+function updateRenderedAnnotations() {
+  renderedAnnotations.value = annotations.value
+    .map((annotation) => {
+      const renderOwner = annotationRenderOwner(annotation)
+      if (!renderOwner) return null
+      const points = annotationRenderPoints(annotation, renderOwner)
+        .map(point => annotationPointToElementPoint(point, renderOwner))
+        .filter((point): point is Point => Boolean(point))
+      const label = labelForAnnotation(annotation)
+      return {
+        id: `${annotation.owner}-${annotation.id}`,
+        annotationId: annotation.id,
+        owner: annotation.owner,
+        name: label.name,
+        path: annotationPath(annotation.kind, points),
+        color: label.color,
+        fill: label.color,
+        fillOpacity: 0.22,
+        label: annotationLabelPoint(points),
+      }
+    })
+    .filter((annotation): annotation is RenderedAnnotation => Boolean(annotation?.path))
+}
+
+function selectRenderedAnnotation(annotation: RenderedAnnotation) {
+  window.dispatchEvent(new CustomEvent('imzdesk:annotation-selected', {
+    detail: {
+      owner: annotation.owner,
+      id: annotation.annotationId,
+    },
+  }))
+}
+
+async function saveAnnotationDraft() {
+  if (!annotationDraft.value) return
+  const draft = annotationDraft.value
+  const filepath = annotationFilepath(draft.owner)
+  if (!filepath) return
+  const saved = await $fetch<Annotation[]>(annotationsEndpoint, {
+    method: 'POST',
+    query: { filepath },
+    body: {
+      label: defaultLabel().id,
+      kind: draft.kind,
+      notes: '',
+      export: true,
+      project: true,
+      coordinates: draft.points.map(point => [point.x, point.y]),
+    },
+  })
+  annotations.value = annotations.value
+    .filter(annotation => annotation.filepath !== filepath)
+    .concat(saved.map(annotation => ({ ...annotation, owner: draft.owner, filepath })))
+  annotationDraft.value = null
+  annotationHoverPoint.value = null
+  updateRenderedAnnotations()
+  window.dispatchEvent(new CustomEvent('imzdesk:annotations-changed'))
+}
+
+function beginAnnotationDraw(event: PointerEvent) {
+  const kind = activeAnnotationKind()
+  const owner = activeAnnotationOwner()
+  if (!kind || !owner || cropEditing.value || manualRegistrationEditing.value) return
+  const point = pointerAnnotationPoint(event, owner)
+  if (!point) return
+  if (event.detail >= 2 && annotationDraft.value?.kind === 'polygon' && annotationDraft.value.owner === owner) {
+    annotationDraft.value.points.push(point)
+    annotationHoverPoint.value = null
+    saveAnnotationDraft()
+    return
+  }
+  const target = event.currentTarget as HTMLElement
+  target.setPointerCapture(event.pointerId)
+  if (kind === 'box') {
+    annotationDrag = { pointerId: event.pointerId, moved: false }
+    annotationDraft.value = { kind, owner, points: [point, point] }
+  } else if (kind === 'freehand') {
+    annotationDrag = { pointerId: event.pointerId, moved: false }
+    annotationDraft.value = { kind, owner, points: [point] }
+  } else if (!annotationDraft.value || annotationDraft.value.kind !== 'polygon' || annotationDraft.value.owner !== owner) {
+    annotationDraft.value = { kind, owner, points: [point] }
+    annotationHoverPoint.value = null
+  } else {
+    annotationDraft.value.points.push(point)
+    annotationHoverPoint.value = null
+  }
+}
+
+function dragAnnotationDraw(event: PointerEvent) {
+  if (!annotationDraft.value) return
+  const point = pointerAnnotationPoint(event, annotationDraft.value.owner)
+  if (!point) return
+  if (annotationDraft.value.kind === 'polygon' && !annotationDrag) {
+    annotationHoverPoint.value = point
+    return
+  }
+  if (!annotationDrag || event.pointerId !== annotationDrag.pointerId) return
+  if (annotationDraft.value.kind === 'box') {
+    annotationDrag.moved = true
+    annotationDraft.value.points = [annotationDraft.value.points[0]!, point]
+  } else if (annotationDraft.value.kind === 'freehand') {
+    annotationDrag.moved = true
+    annotationDraft.value.points.push(point)
+  }
+}
+
+function endAnnotationDraw(event: PointerEvent) {
+  if (!annotationDraft.value) return
+  if (annotationDrag && event.pointerId !== annotationDrag.pointerId) return
+  const moved = annotationDrag?.moved ?? false
+  annotationDrag = null
+  if (!moved && annotationDraft.value.kind !== 'polygon') {
+    annotationDraft.value = null
+    annotationHoverPoint.value = null
+    return
+  }
+  if (annotationDraft.value.kind === 'box' && annotationDraft.value.points.length >= 2) {
+    saveAnnotationDraft()
+  } else if (annotationDraft.value.kind === 'freehand' && annotationDraft.value.points.length >= 2) {
+    closeAnnotationDraft()
+    saveAnnotationDraft()
+  }
+}
+
+function beginRightPan(event: PointerEvent) {
+  if (event.button !== 2 || !viewer || !osd || !viewportEl.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  viewportEl.value.setPointerCapture(event.pointerId)
+  const center = viewer.viewport.getCenter(true)
+  rightPanDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    startCenter: { x: center.x, y: center.y },
+  }
+}
+
+function dragRightPan(event: PointerEvent) {
+  if (!rightPanDrag || event.pointerId !== rightPanDrag.pointerId || !viewer || !osd) return
+  event.preventDefault()
+  event.stopPropagation()
+  const startPoint = viewer.viewport.pointFromPixel(new osd.Point(rightPanDrag.startX, rightPanDrag.startY), true)
+  const currentPoint = viewer.viewport.pointFromPixel(new osd.Point(event.clientX, event.clientY), true)
+  viewer.viewport.panTo(new osd.Point(
+    rightPanDrag.startCenter.x + startPoint.x - currentPoint.x,
+    rightPanDrag.startCenter.y + startPoint.y - currentPoint.y,
+  ), true)
+  viewer.viewport.applyConstraints()
+}
+
+function endRightPan(event: PointerEvent) {
+  if (!rightPanDrag || event.pointerId !== rightPanDrag.pointerId) return
+  event.preventDefault()
+  event.stopPropagation()
+  rightPanDrag = null
+}
+
+function finishAnnotationDraft() {
+  if (!annotationDraft.value) return
+  if (annotationDraft.value.kind === 'polygon' && annotationDraft.value.points.length >= 3) {
+    annotationHoverPoint.value = null
+    saveAnnotationDraft()
+  } else if (annotationDraft.value.kind === 'freehand' && annotationDraft.value.points.length >= 2) {
+    closeAnnotationDraft()
+    annotationDrag = null
+    saveAnnotationDraft()
+  }
+}
+
+function cancelAnnotationDraft() {
+  annotationDraft.value = null
+  annotationHoverPoint.value = null
+  annotationDrag = null
+}
+
+function handleAnnotationEscape(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !activeAnnotationKind()) return
+  cancelAnnotationDraft()
+  activeAnnotationTool.value = 'Select'
+}
+
+function closeAnnotationDraft() {
+  if (!annotationDraft.value) return
+  const first = annotationDraft.value.points[0]
+  const last = annotationDraft.value.points.at(-1)
+  if (first && last && (first.x !== last.x || first.y !== last.y)) {
+    annotationDraft.value.points.push({ ...first })
+  }
+}
+
 function applyManualRegistrationState() {
   if (!manualRegistration.value) return
   const matrix = manualStateToRegistrationMatrix(manualRegistration.value)
@@ -834,6 +1319,7 @@ function endCropDrag(event: PointerEvent) {
 async function initWsiLayer() {
   if (!viewer || !wsiFilepath.value) {
     wsiLoading.value = false
+    await loadWsiMetadata()
     return
   }
   wsiLoading.value = true
@@ -899,6 +1385,7 @@ function applyMsiLayerTransform() {
   if (!viewer || !osd || !msiImageLayer) return
   msiImageLayer.setOpacity(overlaid.value ? 0 : 1)
   updateMsiImageOverlay()
+  updateRenderedAnnotations()
   if (!overlaid.value || !registrationMatrix.value || !wsiImageLayer || !wsiMeta.value || !msiMeta.value?.mpp) return
 
   const matrix = registrationMatrix.value
@@ -935,6 +1422,7 @@ function applyMsiLayerTransform() {
   msiImageLayer.setWidth(width, true)
   msiImageLayer.setRotation(angle, true)
   updateMsiImageOverlay()
+  updateRenderedAnnotations()
 }
 
 async function renderMsiImage() {
@@ -985,12 +1473,18 @@ function cancelMsiImageRender() {
 }
 
 async function initMsiLayer() {
-  if (!msiFilepath.value) {
+  if (!linkedMsiFilepath.value) {
     destroyMsiLayer()
     return
   }
   await loadMsiMetadata()
-  await checkRegistration()
+  const registered = await checkRegistration()
+  if (registered) await loadRegistrationMatrix()
+  if (!msiFilepath.value) {
+    releaseMsiImage()
+    updateRenderedAnnotations()
+    return
+  }
   queueMsiImageRender()
 }
 
@@ -1030,9 +1524,14 @@ async function init() {
     viewer.addHandler('animation', updateManualRegistrationFrame)
     viewer.addHandler('animation-finish', updateManualRegistrationFrame)
     viewer.addHandler('resize', updateManualRegistrationFrame)
+    viewer.addHandler('animation', updateRenderedAnnotations)
+    viewer.addHandler('animation-finish', updateRenderedAnnotations)
+    viewer.addHandler('resize', updateRenderedAnnotations)
 
+    await loadWorkspaceSettings()
     await initWsiLayer()
     await initMsiLayer()
+    await fetchAnnotations()
   } catch {
     wsiLoading.value = false
   }
@@ -1117,6 +1616,10 @@ function destroy() {
   cropDraft.value = null
   cropOverlayRect.value = null
   cropDrag = null
+  cancelAnnotationDraft()
+  rightPanDrag = null
+  annotations.value = []
+  renderedAnnotations.value = []
   manualRegistrationEditing.value = false
   manualRegistrationSaving.value = false
   manualRegistration.value = null
@@ -1139,6 +1642,10 @@ onMounted(() => {
   window.addEventListener('resize', updateCropOverlay)
   window.addEventListener('resize', updateMsiImageOverlay)
   window.addEventListener('resize', updateManualRegistrationFrame)
+  window.addEventListener('resize', updateRenderedAnnotations)
+  window.addEventListener('imzdesk:annotations-changed', fetchAnnotations)
+  window.addEventListener('imzdesk:workspace-settings-changed', loadWorkspaceSettings)
+  window.addEventListener('keydown', handleAnnotationEscape)
 })
 
 onBeforeUnmount(() => {
@@ -1147,6 +1654,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', updateCropOverlay)
   window.removeEventListener('resize', updateMsiImageOverlay)
   window.removeEventListener('resize', updateManualRegistrationFrame)
+  window.removeEventListener('resize', updateRenderedAnnotations)
+  window.removeEventListener('imzdesk:annotations-changed', fetchAnnotations)
+  window.removeEventListener('imzdesk:workspace-settings-changed', loadWorkspaceSettings)
+  window.removeEventListener('keydown', handleAnnotationEscape)
 })
 
 watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], ([wsi, msi], [previousWsi, previousMsi]) => {
@@ -1159,9 +1670,14 @@ watch(msiOpacity, () => {
   applyMsiLayerTransform()
 })
 
+watch(activeAnnotationTool, () => {
+  cancelAnnotationDraft()
+})
+
 watch(overlaid, () => {
   if (!overlaid.value && manualRegistrationEditing.value) cancelManualRegistrationEdit()
   applyMsiLayerTransform()
+  updateRenderedAnnotations()
 })
 
 function closeAll() {
@@ -1198,7 +1714,15 @@ function closeAll() {
         @click="closeAll"
       />
     </div>
-    <div ref="viewportEl" class="relative flex-1 overflow-hidden bg-default">
+    <div
+      ref="viewportEl"
+      class="relative flex-1 overflow-hidden bg-default"
+      @contextmenu.prevent
+      @pointerdown.capture="beginRightPan"
+      @pointermove.capture="dragRightPan"
+      @pointerup.capture="endRightPan"
+      @pointercancel.capture="endRightPan"
+    >
       <div ref="viewerEl" class="absolute inset-0" />
       <img
         v-if="msiImageUrl && msiImageOverlay"
@@ -1207,6 +1731,45 @@ function closeAll() {
         :style="msiImageOverlayStyle()"
         draggable="false"
       >
+      <svg v-if="renderedAnnotations.length" class="pointer-events-none absolute inset-0 z-[4] size-full">
+        <g v-for="annotation in renderedAnnotations" :key="annotation.id" class="pointer-events-auto cursor-pointer" @click.stop="selectRenderedAnnotation(annotation)">
+          <path
+            :d="annotation.path"
+            :fill="annotation.fill"
+            :fill-opacity="annotation.fillOpacity"
+            :stroke="annotation.color"
+            stroke-width="2"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+          <text
+            :x="annotation.label.x"
+            :y="annotation.label.y"
+            :stroke="annotation.color"
+            fill="white"
+            paint-order="stroke"
+            stroke-linejoin="round"
+            stroke-width="2"
+            class="font-data text-xs font-bold"
+          >
+            {{ annotation.name }}
+          </text>
+        </g>
+      </svg>
+      <div
+        v-if="activeAnnotationKind()"
+        class="absolute inset-0 z-[5]"
+        @pointerdown.stop.prevent="beginAnnotationDraw"
+        @pointermove.stop.prevent="dragAnnotationDraw"
+        @pointerup.stop.prevent="endAnnotationDraw"
+        @pointercancel.stop.prevent="cancelAnnotationDraft"
+        @pointerleave.stop.prevent="annotationHoverPoint = null"
+        @dblclick.stop.prevent="finishAnnotationDraft"
+      >
+        <svg v-if="annotationDraft" class="pointer-events-none absolute inset-0 size-full">
+          <path :d="annotationDraftPath()" :fill="defaultLabel().color" :fill-opacity="annotationDraftFillOpacity()" :stroke="defaultLabel().color" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        </svg>
+      </div>
       <div
         v-if="cropEditing"
         class="pointer-events-auto absolute inset-0 z-20"

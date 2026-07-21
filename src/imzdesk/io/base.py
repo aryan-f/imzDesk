@@ -5,6 +5,7 @@ import typing
 import yaml
 
 from imzdesk.core.metadata import Metadata
+from imzdesk.core.workspace import derived_path
 
 
 class ImageBase(abc.ABC):
@@ -23,6 +24,7 @@ class ImageBase(abc.ABC):
         self.filepath = pathlib.Path(filepath)
         self._metadata = None
         self._tags = None
+        self._annotations = None
 
     @property
     def metadata(self):
@@ -51,6 +53,20 @@ class ImageBase(abc.ABC):
     @property
     def tags_path(self) -> pathlib.Path:
         return self.derived_path('.tags.yaml')
+
+    @property
+    def annotations(self) -> list[dict]:
+        if self._annotations is None:
+            self._annotations = self.read_annotations(self.filepath)
+        return self._annotations
+
+    @annotations.setter
+    def annotations(self, value):
+        self._annotations = value
+
+    @property
+    def annotations_path(self) -> pathlib.Path:
+        return self.derived_path('.annotations.yaml')
 
     @classmethod
     def read_metadata(cls, filepath):
@@ -88,6 +104,27 @@ class ImageBase(abc.ABC):
         return tags
 
     @classmethod
+    def read_annotations(cls, filepath) -> list[dict]:
+        annotations_path = cls.derived_path_for(filepath, '.annotations.yaml')
+        if not annotations_path.exists():
+            return []
+        with open(annotations_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        if data is None:
+            return []
+        if isinstance(data, list):
+            return list(data)
+        return list(data.get('annotations', []))
+
+    @classmethod
+    def write_annotations(cls, filepath, annotations: list[dict]) -> list[dict]:
+        annotations_path = cls.derived_path_for(filepath, '.annotations.yaml')
+        annotations_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(annotations_path, 'w', encoding='utf-8') as f:
+            yaml.safe_dump(annotations, f, sort_keys=False)
+        return annotations
+
+    @classmethod
     @abc.abstractmethod
     def init_metadata(cls, filepath) -> Metadata:
         """
@@ -111,10 +148,12 @@ class ImageBase(abc.ABC):
     def flush_tags(self):
         self.write_tags(self.filepath, self.tags)
 
+    def flush_annotations(self):
+        self.write_annotations(self.filepath, self.annotations)
+
     def derived_path(self, suffix: str) -> pathlib.Path:
         return self.derived_path_for(self.filepath, suffix)
 
     @staticmethod
     def derived_path_for(filepath, suffix: str) -> pathlib.Path:
-        filepath = pathlib.Path(filepath)
-        return filepath.parent / '.imzDesk' / f'{filepath.stem}{suffix}'
+        return derived_path(filepath, suffix)
