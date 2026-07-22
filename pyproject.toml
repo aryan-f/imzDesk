@@ -1,19 +1,20 @@
 [project]
 name = "imzdesk"
-version = "0.0.1"
+version = "0.0.4"
 requires-python = ">=3.12"
 dependencies = [
     "aiofiles>=25.1.0",
     "fastapi>=0.138.0",
     "h5py>=3.16.0",
+    "huggingface-hub>=1.23.0",
     "lxml>=6.1.1",
     "matplotlib>=3.10.8",
     "numpy>=2.4.2",
     "openslide-python>=1.4.6",
     "pillow>=12.1.0",
     "psutil>=7.2.2",
-    "pydantic>=2.13.4",
     "pydantic-settings>=2.13.4",
+    "pydantic>=2.13.4",
     "pyimzml>=1.5.5",
     "pyyaml>=6.0.3",
     "scikit-image>=0.26.0",
@@ -27,7 +28,6 @@ dependencies = [
 
 [project.optional-dependencies]
 extras = [
-    "huggingface-hub>=1.23.0",
     "safetensors>=0.8.0",
     "torchvision~=0.27.1",
     "torch~=2.12.1",
