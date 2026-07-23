@@ -1,6 +1,13 @@
-# imzDesk
+# imzDesk: WSI-MSI Workbench
 
-**imzDesk** is a workbench for MSI-WSI co-registration and dataset curation.
+![Build Status](https://img.shields.io/github/actions/workflow/status/aryan-f/imzDesk/build.yml)
+[![codecov](https://codecov.io/gh/aryan-f/imzDesk/graph/badge.svg)](https://codecov.io/gh/aryan-f/imzDesk)
+![PyPI Python Version](https://img.shields.io/pypi/pyversions/imzdesk)
+[![PyPI Version](https://img.shields.io/pypi/v/imzdesk)](https://pypi.org/project/imzdesk/)
+[![GitHub Repo](https://img.shields.io/badge/github-repo-blue?logo=github)](https://github.com/aryan-f/imzDesk/)
+[![Documentation](https://img.shields.io/badge/gitbook-docs-3884FF?logo=gitbook&logoColor=white)](https://med-i-lab.gitbook.io/imzdesk)
+
+**imzDesk** is an open-source web-based workbench and Python library that enables multi-modal analysis and modeling of Whole Slide Images (WSIs) and Mass Spectrometry Images (MSIs).
 
 ## Prerequisites
 
@@ -9,7 +16,7 @@
 ## Installation
 
 ```shell
-pip install imzdesk
+pip install "imzdesk[extras]"
 ```
 
 ## Usage
