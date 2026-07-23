@@ -566,12 +566,13 @@ wheels = [
 
 [[package]]
 name = "imzdesk"
-version = "0.0.1"
+version = "0.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
     { name = "fastapi" },
     { name = "h5py" },
+    { name = "huggingface-hub" },
     { name = "lxml" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -593,7 +594,6 @@ dependencies = [
 
 [package.optional-dependencies]
 extras = [
-    { name = "huggingface-hub" },
     { name = "safetensors" },
     { name = "torch" },
     { name = "torchvision" },
@@ -610,7 +610,7 @@ requires-dist = [
     { name = "aiofiles", specifier = ">=25.1.0" },
     { name = "fastapi", specifier = ">=0.138.0" },
     { name = "h5py", specifier = ">=3.16.0" },
-    { name = "huggingface-hub", marker = "extra == 'extras'", specifier = ">=1.23.0" },
+    { name = "huggingface-hub", specifier = ">=1.23.0" },
     { name = "lxml", specifier = ">=6.1.1" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "numpy", specifier = ">=2.4.2" },
