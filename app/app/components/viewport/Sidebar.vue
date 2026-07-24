@@ -36,7 +36,7 @@ const activeFilename = computed(() => {
 })
 const activeFilepath = computed(() => {
   if (!state.value.active || !activeFilename.value) return null
-  return `${state.value.dirpath}/${activeFilename.value}`
+  return activeFilename.value
 })
 const metadata = ref<Metadata | null>(null)
 const metadataLoading = ref(false)

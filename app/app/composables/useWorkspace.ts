@@ -1,4 +1,4 @@
-import {FILE_TYPES, type FileType} from '~/types/filesystem'
+import { FILE_TYPES, type FileType } from '~/types/filesystem'
 
 type OpenedFiles = Record<FileType, string | null>
 
@@ -26,14 +26,24 @@ export function useWorkspace() {
     state.value.active = null
   }
 
-  function openFile(type: FileType, filename: string) {
-    state.value.opened[type] = filename
+  function openFile(type: FileType, filepath: string) {
+    state.value.opened[type] = filepath
     state.value.active = type
+  }
+
+  function openFiles(files: Partial<OpenedFiles>, active?: FileType) {
+    state.value.opened = { ...emptyOpenedFiles(), ...files }
+    state.value.active = active ?? FILE_TYPES.find(fileType => state.value.opened[fileType]) ?? null
+  }
+
+  function openDirectoryWithFiles(dirpath: string, files: Partial<OpenedFiles>, active?: FileType) {
+    state.value.dirpath = dirpath
+    openFiles(files, active)
   }
 
   function closeFile(type: FileType) {
     state.value.opened[type] = null
-    if (state.value.active !== type) return  // Nothing further to do
+    if (state.value.active !== type) return // Nothing further to do
     state.value.active = FILE_TYPES.find(fileType => state.value.opened[fileType]) ?? null
   }
 
@@ -47,6 +57,8 @@ export function useWorkspace() {
     anyOpened,
     openDirectory,
     openFile,
+    openFiles,
+    openDirectoryWithFiles,
     closeFile,
     setActive,
   }

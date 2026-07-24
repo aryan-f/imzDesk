@@ -1,14 +1,15 @@
 import type { MaybeRefOrGetter } from 'vue'
 
-export function useVirtualList<T>(items: MaybeRefOrGetter<T[]>, itemHeight: number, overscan = 8) {
+export function useVirtualList<T>(items: MaybeRefOrGetter<T[]>, itemHeight: MaybeRefOrGetter<number>, overscan = 8) {
   const listEl = useTemplateRef<HTMLDivElement>('listEl')
   const scrollTop = ref(0)
   const listHeight = ref(0)
   const allItems = computed(() => toValue(items))
-  const start = computed(() => Math.max(0, Math.floor(scrollTop.value / itemHeight) - overscan))
-  const end = computed(() => Math.min(allItems.value.length, Math.ceil((scrollTop.value + listHeight.value) / itemHeight) + overscan))
+  const rowHeight = computed(() => toValue(itemHeight))
+  const start = computed(() => Math.max(0, Math.floor(scrollTop.value / rowHeight.value) - overscan))
+  const end = computed(() => Math.min(allItems.value.length, Math.ceil((scrollTop.value + listHeight.value) / rowHeight.value) + overscan))
   const virtualItems = computed(() => allItems.value.slice(start.value, end.value).map((item, offset) => ({ item, index: start.value + offset })))
-  const virtualHeight = computed(() => `${allItems.value.length * itemHeight}px`)
+  const virtualHeight = computed(() => `${allItems.value.length * rowHeight.value}px`)
   let resizeObserver: ResizeObserver | null = null
   onMounted(() => {
     if (!listEl.value) return
@@ -24,7 +25,7 @@ export function useVirtualList<T>(items: MaybeRefOrGetter<T[]>, itemHeight: numb
   })
   watch(allItems, () => {
     if (!listEl.value) return
-    const maxScrollTop = Math.max(0, allItems.value.length * itemHeight - listHeight.value)
+    const maxScrollTop = Math.max(0, allItems.value.length * rowHeight.value - listHeight.value)
     if (scrollTop.value > maxScrollTop) {
       listEl.value.scrollTop = maxScrollTop
       scrollTop.value = maxScrollTop
@@ -35,8 +36,8 @@ export function useVirtualList<T>(items: MaybeRefOrGetter<T[]>, itemHeight: numb
   }
   function itemStyle(index: number, heightAdjustment = 0) {
     return {
-      height: `${itemHeight + heightAdjustment}px`,
-      transform: `translateY(${index * itemHeight}px)`,
+      height: `${rowHeight.value + heightAdjustment}px`,
+      transform: `translateY(${index * rowHeight.value}px)`,
     }
   }
   return {

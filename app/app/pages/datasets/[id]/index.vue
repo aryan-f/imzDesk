@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { DatasetPaneItem } from '~/components/datasets/Pane.vue'
-import type { DatasetFile, DatasetKind, DatasetManifest, DatasetSample } from '~/types/datasets'
+import type { DatasetFile, DatasetKind, DatasetManifest, DatasetPair, DatasetSample } from '~/types/datasets'
 import type { FileType } from '~/types/filesystem'
 import type { WorkspaceSettings } from '~/types/images'
 
 const route = useRoute()
+const router = useRouter()
 const activity = useActivity()
+const { openDirectoryWithFiles } = useWorkspace()
 const endpoint = '/api/datasets/manifest'
 const filesEndpoint = '/api/datasets/files'
 const workspaceSettingsEndpoint = '/api/workspace/settings'
@@ -33,12 +35,12 @@ watch(loadedDataset, (value) => {
 const splitNames = computed(() => Object.keys(dataset.value?.splits ?? {}))
 const filesLoading = computed(() => filesStatus.value === 'pending')
 const validDatasetName = computed(() => Boolean(dataset.value?.name.trim()))
+const paneItemHeight = computed(() => dataset.value?.kind === 'paired' ? 186 : 93)
 const selectedFiles = computed(() => [...selectedPaths.value].map(path => fileByPath(path)).filter((file): file is DatasetFile => Boolean(file)))
-const selectedWsiFiles = computed(() => selectedFiles.value.filter(file => file.type === 'WSI'))
-const selectedMsiFiles = computed(() => selectedFiles.value.filter(file => file.type === 'MSI'))
+const selectedPairs = computed(() => [...selectedPaths.value].map(id => pairById(id)).filter((pair): pair is DatasetPair => Boolean(pair)))
 const hasSelection = computed(() => selectedPaths.value.size > 0)
 const canAddSelection = computed(() => {
-  if (dataset.value?.kind === 'paired') return selectedWsiFiles.value.length === 1 && selectedMsiFiles.value.length === 1
+  if (dataset.value?.kind === 'paired') return selectedPairs.value.length === 1
   return selectedFiles.value.length > 0
 })
 const validSplitName = computed(() => {
@@ -60,7 +62,23 @@ const rawAvailableFiles = computed(() => {
     .filter(file => file.type && allowedFileTypes(dataset.value?.kind).includes(file.type))
     .filter(file => !usedPaths.value.has(file.path))
 })
-const availableItems = computed<DatasetPaneItem[]>(() => rawAvailableFiles.value.map(file => ({ id: file.path, files: [file] })))
+const registeredPairs = computed<DatasetPair[]>(() => {
+  const wsiByPath = new Map((files.value ?? []).filter(file => file.type === 'WSI').map(file => [file.path, file]))
+  return (files.value ?? [])
+    .filter(file => file.type === 'MSI')
+    .flatMap((msi) => {
+      return (msi.registered_references ?? []).flatMap((reference) => {
+        const wsi = wsiByPath.get(reference)
+        if (!wsi) return []
+        return [{ id: pairId(wsi.path, msi.path), wsi, msi }]
+      })
+    })
+})
+const availablePairs = computed(() => registeredPairs.value.filter(pair => !usedPaths.value.has(pair.wsi.path) && !usedPaths.value.has(pair.msi.path)))
+const availableItems = computed<DatasetPaneItem[]>(() => {
+  if (dataset.value?.kind === 'paired') return availablePairs.value.map(pair => ({ id: pair.id, files: [pair.wsi, pair.msi] }))
+  return rawAvailableFiles.value.map(file => ({ id: file.path, files: [file] }))
+})
 const tagFilterOptions = computed(() => [...new Set((files.value ?? []).flatMap(file => file.tags))].sort())
 const labelFilterOptions = computed(() => workspaceSettings.value.labels.map(label => ({ label: label.name, value: label.id })))
 
@@ -72,6 +90,14 @@ function allowedFileTypes(kind?: DatasetKind) {
 
 function fileByPath(path?: string) {
   return (files.value ?? []).find(file => file.path === path)
+}
+
+function pairId(wsi: string, msi: string) {
+  return `${wsi}\n${msi}`
+}
+
+function pairById(id: string) {
+  return registeredPairs.value.find(pair => pair.id === id)
 }
 
 function sampleFiles(sample: DatasetSample) {
@@ -165,12 +191,11 @@ async function addToSplit(split: string) {
   if (!samples) return
   const selected = selectedSampleFiles()
   if (dataset.value.kind === 'paired') {
-    const wsi = selected.filter(file => file.type === 'WSI')
-    const msi = selected.filter(file => file.type === 'MSI')
-    if (wsi.length !== 1 || msi.length !== 1) return
-    const sample = { id: sampleId({ wsi: wsi[0]!.path, msi: msi[0]!.path }), wsi: wsi[0]!.path, msi: msi[0]!.path }
+    const pair = selectedPairs.value[0]
+    if (!pair) return
+    const sample = { id: sampleId({ wsi: pair.wsi.path, msi: pair.msi.path }), wsi: pair.wsi.path, msi: pair.msi.path }
     samples.push(sample)
-    clearSelectedPaths(selected.map(file => file.path))
+    clearSelectedPaths([pair.id])
     await persistDataset()
     return
   }
@@ -182,6 +207,30 @@ async function addToSplit(split: string) {
   }
   clearSelectedPaths(selected.map(file => file.path))
   await persistDataset()
+}
+
+async function openItem(item: DatasetPaneItem) {
+  const wsi = item.files.find(file => file.type === 'WSI')
+  const msi = item.files.find(file => file.type === 'MSI')
+  const dirpath = item.files[0]?.parent === '.' ? '' : item.files[0]?.parent ?? ''
+  if (wsi && msi) {
+    openDirectoryWithFiles(dirpath, { WSI: wsi.path, MSI: msi.path }, 'WSI')
+  } else if (wsi) {
+    openDirectoryWithFiles(dirpath, { WSI: wsi.path }, 'WSI')
+  } else if (msi) {
+    openDirectoryWithFiles(dirpath, { MSI: msi.path }, 'MSI')
+  }
+  await router.push('/workspace')
+}
+
+async function openAvailableItem(id: string) {
+  const item = availableItems.value.find(item => item.id === id)
+  if (item) await openItem(item)
+}
+
+async function openSplitItem(split: string, id: string) {
+  const item = splitItems(split).find(item => item.id === id)
+  if (item) await openItem(item)
 }
 
 function clearSelectedPaths(paths: string[]) {
@@ -336,6 +385,7 @@ async function reloadFromDisk() {
           title="Available"
           :items="availableItems"
           :selected-ids="[...selectedPaths]"
+          :item-height="paneItemHeight"
           :loading="filesLoading"
           :item-drop-visible="false"
           :tag-options="tagFilterOptions"
@@ -343,6 +393,7 @@ async function reloadFromDisk() {
           @toggle-item="toggleAvailable"
           @select-items="selectAvailable"
           @deselect-items="deselectAvailable"
+          @open-item="openAvailableItem"
         />
         <div class="-mx-3 -my-3 min-w-0 overflow-x-auto overflow-y-visible px-3 py-3">
           <TransitionGroup name="split-pane" tag="div" class="flex h-full min-w-max gap-4">
@@ -353,6 +404,7 @@ async function reloadFromDisk() {
               :title="split"
               :items="splitItems(split)"
               :selected-ids="selectedSplitIds(split)"
+              :item-height="paneItemHeight"
               :draggable-title="true"
               :add-visible="hasSelection"
               :add-disabled="!canAddSelection"
@@ -368,6 +420,7 @@ async function reloadFromDisk() {
               @drop-item="dropSample(split, $event)"
               @drop-selected="dropSelectedSamples(split)"
               @delete="deletingSplit = split"
+              @open-item="openSplitItem(split, $event)"
               @title-dragstart="beginSplitDrag($event, split)"
               @title-dragend="endSplitDrag"
               @pane-dragover="dragOverSplit($event, split)"
@@ -440,7 +493,6 @@ async function reloadFromDisk() {
     transform 220ms cubic-bezier(0.2, 0.9, 0.25, 1.15),
     box-shadow 160ms ease,
     opacity 160ms ease;
-  will-change: transform;
 }
 
 .split-pane-move {
@@ -451,6 +503,7 @@ async function reloadFromDisk() {
   box-shadow: 0 12px 28px rgb(0 0 0 / 0.22);
   opacity: 0.92;
   transform: scale(1.015);
+  will-change: transform;
   z-index: 10;
 }
 </style>

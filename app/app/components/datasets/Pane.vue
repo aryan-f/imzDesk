@@ -32,6 +32,7 @@ const props = withDefaults(defineProps<{
   itemDropVisible?: boolean
   deleteVisible?: boolean
   dragClass?: string
+  itemHeight?: number
   tagOptions?: string[]
   labelOptions?: Array<{ label: string, value: string }>
 }>(), {
@@ -43,6 +44,7 @@ const props = withDefaults(defineProps<{
   itemDropVisible: true,
   deleteVisible: false,
   dragClass: '',
+  itemHeight: 93,
   tagOptions: () => [],
   labelOptions: () => [],
 })
@@ -54,6 +56,7 @@ const emit = defineEmits<{
   dropItem: [id: string]
   dropSelected: []
   delete: []
+  openItem: [id: string]
   titleDragstart: [event: DragEvent]
   titleDragend: [event: DragEvent]
   paneDragover: [event: DragEvent]
@@ -92,7 +95,7 @@ const visibleItems = computed(() => props.items.filter(item => activeFilters.val
 const visibleItemIds = computed(() => visibleItems.value.map(item => item.id))
 const selectedVisibleIds = computed(() => visibleItemIds.value.filter(id => props.selectedIds.includes(id)))
 const allVisibleSelected = computed(() => visibleItems.value.length > 0 && selectedVisibleIds.value.length === visibleItems.value.length)
-const { virtualItems, virtualHeight, updateScroll, itemStyle } = useVirtualList(visibleItems, 93)
+const { virtualItems, virtualHeight, updateScroll, itemStyle } = useVirtualList(visibleItems, () => props.itemHeight)
 const selectAllChecked = computed({
   get: () => allVisibleSelected.value,
   set: (checked: boolean | 'indeterminate') => {
@@ -109,18 +112,12 @@ function isSelected(id: string) {
   return props.selectedIds.includes(id)
 }
 
-function fileTags(item: DatasetPaneItem) {
-  return [...new Set(item.files.flatMap(file => file.tags))]
-}
-
-function annotationLabels(item: DatasetPaneItem) {
+function annotationLabels(file: DatasetFile) {
   const labels = new Map<string, { id: string, name: string, count: number, color: string }>()
-  for (const file of item.files) {
-    for (const label of file.annotation_labels) {
-      const existing = labels.get(label.id)
-      if (existing) existing.count += label.count
-      else labels.set(label.id, { ...label })
-    }
+  for (const label of file.annotation_labels) {
+    const existing = labels.get(label.id)
+    if (existing) existing.count += label.count
+    else labels.set(label.id, { ...label })
   }
   return [...labels.values()]
 }
@@ -185,14 +182,14 @@ function matchesTextFilter(source: string, operator: TextFilterOperator, value: 
 
 <template>
   <section class="flex min-h-0 flex-col rounded-lg border border-default bg-muted" :class="dragClass" @dragover.prevent="emit('paneDragover', $event)">
-    <div class="flex min-h-12 flex-wrap items-center gap-2 border-b border-default px-3 py-2">
-      <div v-if="draggableTitle" class="flex min-w-0 cursor-grab items-center gap-1.5 active:cursor-grabbing" draggable="true" @dragstart="emit('titleDragstart', $event)" @dragend="emit('titleDragend', $event)">
+    <div class="flex h-12 items-center gap-2 overflow-hidden border-b border-default px-3 py-2">
+      <div v-if="draggableTitle" class="flex min-w-0 max-w-20 shrink cursor-grab items-center gap-1.5 active:cursor-grabbing" draggable="true" @dragstart="emit('titleDragstart', $event)" @dragend="emit('titleDragend', $event)">
         <UIcon name="i-lucide-grip-vertical" class="size-4 shrink-0 text-dimmed" />
         <h2 class="min-w-0 truncate font-data text-sm font-semibold text-muted">
           {{ title }}
         </h2>
       </div>
-      <h2 v-else class="min-w-0 truncate text-sm font-semibold text-muted">
+      <h2 v-else class="min-w-0 max-w-28 shrink truncate text-sm font-semibold text-muted">
         {{ title }}
       </h2>
       <UBadge :label="String(visibleItems.length)" color="neutral" variant="soft" size="sm" />
@@ -234,37 +231,42 @@ function matchesTextFilter(source: string, operator: TextFilterOperator, value: 
     </div>
     <div ref="listEl" class="min-h-0 flex-1 overflow-y-auto p-2" @scroll="updateScroll">
       <div class="relative" :style="{ height: virtualHeight }">
-        <button v-for="{ item, index } in virtualItems" :key="item.id" class="absolute left-0 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-elevated" :class="isSelected(item.id) ? 'bg-elevated' : ''" :style="itemStyle(index, -4)" @click="emit('toggleItem', item.id)">
+        <button v-for="{ item, index } in virtualItems" :key="item.id" class="absolute left-0 flex w-full items-start gap-2 overflow-hidden rounded-md px-2 py-2 text-left hover:bg-elevated" :class="isSelected(item.id) ? 'bg-elevated' : ''" :style="itemStyle(index, -4)" @click="emit('toggleItem', item.id)">
           <span class="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border border-default" :class="isSelected(item.id) ? 'bg-info text-inverted border-info' : 'bg-default text-transparent'">
             <UIcon name="i-lucide-check" class="size-3" />
           </span>
           <span class="min-w-0 flex-1">
-            <span v-for="file in item.files" :key="file.path" class="mb-1 flex min-w-0 gap-2">
-              <UIcon :name="fileIcon(file)" :class="[fileIconColorClass(file), 'mt-0.5 size-4 shrink-0']" />
-              <span class="min-w-0">
-                <span class="block truncate font-data text-xs text-dimmed">{{ parentPath(file) }}</span>
-                <span class="block truncate font-data text-sm text-default">{{ file.name }}</span>
+            <span v-for="file in item.files" :key="file.path" class="mb-2 block min-w-0 last:mb-0">
+              <span class="flex min-w-0 gap-2">
+                <UIcon :name="fileIcon(file)" :class="[fileIconColorClass(file), 'mt-0.5 size-4 shrink-0']" />
+                <span class="min-w-0">
+                  <span class="block truncate font-data text-xs text-dimmed">{{ parentPath(file) }}</span>
+                  <span class="block truncate font-data text-sm text-default">{{ file.name }}</span>
+                </span>
               </span>
-            </span>
-            <span class="mt-1 flex min-h-5 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
-              <template v-if="fileTags(item).length">
-                <UBadge v-for="tag in fileTags(item)" :key="tag" :label="tag" color="neutral" variant="soft" size="sm" class="max-w-24 shrink-0 px-1.5 py-0.75" :style="tagColorStyle(tag)" />
-              </template>
-              <span v-else class="text-xs leading-5 text-dimmed">
-                No tags.
+              <span class="mt-1 flex min-h-5 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap ps-6">
+                <template v-if="file.tags.length">
+                  <UBadge v-for="tag in file.tags" :key="tag" :label="tag" color="neutral" variant="soft" size="sm" class="max-w-24 shrink-0 px-1.5 py-0.75" :style="tagColorStyle(tag)" />
+                </template>
+                <span v-else class="text-xs leading-5 text-dimmed">
+                  No tags.
+                </span>
               </span>
-            </span>
-            <span class="mt-0.5 flex min-h-5 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
-              <template v-if="annotationLabels(item).length">
-                <UBadge v-for="label in annotationLabels(item)" :key="label.id" :label="`${label.name} (${label.count})`" color="neutral" variant="soft" size="sm" class="max-w-24 shrink-0 px-1.5 py-0.75" :style="{ backgroundColor: `${label.color}22`, borderColor: `${label.color}66`, color: label.color }" />
-              </template>
-              <span v-else class="text-xs leading-5 text-dimmed">
-                No annotations.
+              <span class="mt-0.5 flex min-h-5 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap ps-6">
+                <template v-if="annotationLabels(file).length">
+                  <UBadge v-for="label in annotationLabels(file)" :key="label.id" :label="`${label.name} (${label.count})`" color="neutral" variant="soft" size="sm" class="max-w-24 shrink-0 px-1.5 py-0.75" :style="{ backgroundColor: `${label.color}22`, borderColor: `${label.color}66`, color: label.color }" />
+                </template>
+                <span v-else class="text-xs leading-5 text-dimmed">
+                  No annotations.
+                </span>
               </span>
             </span>
           </span>
           <UTooltip v-if="itemDropVisible" text="Drop sample">
             <UButton icon="i-lucide-circle-minus" color="neutral" variant="ghost" size="xs" square @click.stop="emit('dropItem', item.id)" />
+          </UTooltip>
+          <UTooltip text="Open in workspace">
+            <UButton icon="i-lucide-external-link" color="neutral" variant="ghost" size="xs" square @click.stop="emit('openItem', item.id)" />
           </UTooltip>
         </button>
       </div>

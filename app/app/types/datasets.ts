@@ -25,4 +25,11 @@ export interface DatasetAnnotationSummary {
 export interface DatasetFile extends FilesystemEntry {
   tags: string[]
   annotation_labels: DatasetAnnotationSummary[]
+  registered_references?: string[]
+}
+
+export interface DatasetPair {
+  id: string
+  wsi: DatasetFile
+  msi: DatasetFile
 }

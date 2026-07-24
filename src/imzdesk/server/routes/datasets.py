@@ -65,6 +65,7 @@ async def get_files(request: Request):
 @threaded
 def get_files_impl(workspace: Path):
     entries = []
+    files = []
     settings_path = workspace_path(workspace, 'workspace.yaml')
     if settings_path.exists():
         with open(settings_path, 'r', encoding='utf-8') as f:
@@ -85,29 +86,47 @@ def get_files_impl(workspace: Path):
             info = path.stat()
             if not stat.S_ISREG(info.st_mode):
                 continue
-            image_class = CLASSES[filetype]
-            annotations = image_class.read_annotations(path)
-            annotation_labels = {}
-            for annotation in annotations:
-                label = annotation.get('label')
-                if label:
-                    annotation_labels[label] = annotation_labels.get(label, 0) + 1
-            entries.append({
-                'name': path.name,
-                'path': str(path.relative_to(workspace)),
-                'directory': False,
-                'parent': str(path.parent.relative_to(workspace)),
-                'size': info.st_size,
-                'type': filetype,
-                'tags': image_class.read_tags(path),
-                'annotation_labels': [
-                    {
-                        'id': label,
-                        'name': labels[label].name if label in labels else label,
-                        'count': count,
-                        'color': labels[label].color if label in labels else '#64748b',
-                    }
-                    for label, count in sorted(annotation_labels.items(), key=lambda item: labels[item[0]].name.lower() if item[0] in labels else item[0].lower())
-                ],
-            })
+            files.append((path, filetype, info.st_size))
+    wsi_by_name_and_parent = {
+        (path.name, path.parent): path
+        for path, filetype, _ in files
+        if filetype == 'WSI'
+    }
+    for path, filetype, size in files:
+        image_class = CLASSES[filetype]
+        annotations = image_class.read_annotations(path)
+        annotation_labels = {}
+        for annotation in annotations:
+            label = annotation.get('label')
+            if label and label in labels:
+                annotation_labels[label] = annotation_labels.get(label, 0) + 1
+        entry = {
+            'name': path.name,
+            'path': str(path.relative_to(workspace)),
+            'directory': False,
+            'parent': str(path.parent.relative_to(workspace)),
+            'size': size,
+            'type': filetype,
+            'tags': image_class.read_tags(path),
+            'annotation_labels': [
+                {
+                    'id': label,
+                    'name': labels[label].name,
+                    'count': count,
+                    'color': labels[label].color,
+                }
+                for label, count in sorted(annotation_labels.items(), key=lambda item: labels[item[0]].name.lower())
+            ],
+        }
+        if filetype == 'MSI':
+            derived_directory = image_class.derived_path_for(path, '').parent
+            references = []
+            if derived_directory.exists():
+                for transform_path in derived_directory.glob(f'{path.stem}.*.transform.npy'):
+                    reference_name = transform_path.name.removeprefix(f'{path.stem}.').removesuffix('.transform.npy')
+                    reference = wsi_by_name_and_parent.get((reference_name, path.parent))
+                    if reference is not None:
+                        references.append(str(reference.relative_to(workspace)))
+            entry['registered_references'] = sorted(references)
+        entries.append(entry)
     return sorted(entries, key=lambda entry: (entry['parent'].lower(), entry['name'].lower()))

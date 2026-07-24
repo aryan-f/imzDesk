@@ -181,21 +181,21 @@ function makeGetTileUrl(filepath: string) {
 
 const msiFilepath = computed(() => {
   if (!props.msi || !props.displayMsi) return null
-  return `${state.value.dirpath}/${props.msi}`
+  return props.msi
 })
 
 const linkedMsiFilepath = computed(() => {
   if (!props.msi) return null
-  return `${state.value.dirpath}/${props.msi}`
+  return props.msi
 })
 
 const wsiFilepath = computed(() => {
   if (!props.wsi || !props.displayWsi) return null
-  return `${state.value.dirpath}/${props.wsi}`
+  return props.wsi
 })
 
 const fixedWsiFilepath = computed(() => {
-  if (props.wsi) return `${state.value.dirpath}/${props.wsi}`
+  if (props.wsi) return props.wsi
   return null
 })
 

@@ -38,7 +38,7 @@ function clicked() {
 
 function doubleClicked() {
   if (props.entry.directory) openDirectory(props.entry.path)
-  else if (props.entry.type) openFile(props.entry.type, props.entry.name)
+  else if (props.entry.type) openFile(props.entry.type, props.entry.path)
 }
 </script>
 
