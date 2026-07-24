@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import prettyBytes from 'pretty-bytes'
-import type {FilesystemEntry} from '~/types/filesystem'
+import type { FilesystemEntry } from '~/types/filesystem'
 
 const props = defineProps<{
   entry: FilesystemEntry
@@ -12,25 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const { openDirectory, openFile } = useWorkspace()
-
-const icon = computed(() => {
-  if (props.entry.directory) {
-    return 'mdi-folder'
-  }
-  if (props.entry.type) {
-    switch (props.entry.type) {
-      case 'MSI': return 'streamline-image-blur'
-      case 'WSI': return 'healthicons-cell-nuclei-outline-24px'
-    }
-  }
-  return 'iconamoon-file'
-})
-
-const iconColorClass = computed(() => {
-  if (props.entry.directory) return 'text-primary'
-  if (props.entry.type) return 'text-neutral'
-  return 'text-dimmed' // Anything Else
-})
+const { fileIcon, fileIconColorClass } = useFileIcon()
 
 const formattedSize = computed(() => {
   if (props.entry.size === undefined) return undefined
@@ -71,7 +53,7 @@ function doubleClicked() {
     @dblclick="doubleClicked"
   >
     <template #leading>
-      <UIcon :name="icon" :class="[iconColorClass, 'size-4 shrink-0']" />
+      <UIcon :name="fileIcon(entry)" :class="[fileIconColorClass(entry), 'size-4 shrink-0']" />
     </template>
     <template #default>
       <UTooltip :text="tooltip" :delay-duration="250">

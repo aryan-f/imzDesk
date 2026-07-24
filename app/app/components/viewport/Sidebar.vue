@@ -58,6 +58,7 @@ const workspaceSettings = ref<WorkspaceSettings>({ labels: [] })
 const focusedAnnotationId = ref<string | null>(null)
 const pendingAnnotationFocus = ref<{ owner: FileType, id: string } | null>(null)
 const annotationRows = new Map<string, HTMLElement>()
+const { tagBadgeClass, tagColorStyle } = useTagColors()
 
 const requiredRows = computed(() => {
   if (!metadata.value || !state.value.active) return []
@@ -78,7 +79,6 @@ const requiredRows = computed(() => {
 
 const optionalEntries = computed(() => Object.entries(optionalDraft.value))
 const metadataRowClass = 'grid grid-cols-[7.5rem_1fr] gap-2 border-b border-default/40 pr-5 text-sm leading-6'
-const tagBadgeClass = 'inline-flex h-7 max-w-full items-center gap-1 rounded-full border px-2 text-sm leading-none'
 
 function notifyAnnotationsChanged() {
   window.dispatchEvent(new CustomEvent('imzdesk:annotations-changed'))
@@ -94,21 +94,6 @@ function setAnnotationRowRef(id: string, element: Element | ComponentPublicInsta
 
 function annotationRowRef(id: string) {
   return (element: Element | ComponentPublicInstance | null) => setAnnotationRowRef(id, element)
-}
-
-function tagColorStyle(tag: string) {
-  const namespace = tag.split('.')[0] || tag
-  let hash = 22101376
-  for (const character of namespace) {
-    hash ^= character.charCodeAt(0)
-    hash = Math.imul(hash, 16777619)
-  }
-  const hue = Math.abs(hash) % 360
-  return {
-    backgroundColor: `hsl(${hue} 24% 88%)`,
-    borderColor: `hsl(${hue} 22% 66%)`,
-    color: `hsl(${hue} 32% 26%)`,
-  }
 }
 
 function formatValue(value: unknown) {
