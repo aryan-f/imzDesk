@@ -1556,6 +1556,11 @@ function applyMsiDisplay(display: MSIDisplay) {
   queueMsiImageRender()
 }
 
+function applyTileSmoothing(event: OpenSeadragon.TileDrawingEvent) {
+  const context = event.context as unknown as CanvasRenderingContext2D
+  context.imageSmoothingEnabled = event.tiledImage !== msiImageLayer
+}
+
 async function init() {
   if (!viewerEl.value) return
 
@@ -1566,11 +1571,11 @@ async function init() {
       element: viewerEl.value,
       tileSources: [],
       showNavigationControl: false,
-      imageSmoothingEnabled: false,
+      drawer: 'canvas',
       springStiffness: 12,
       animationTime: 0.4,
     })
-    viewer.drawer.setImageSmoothingEnabled(false)
+    viewer.addHandler('tile-drawing', applyTileSmoothing)
     viewer.addHandler('animation', updateCropOverlay)
     viewer.addHandler('animation-finish', updateCropOverlay)
     viewer.addHandler('resize', updateCropOverlay)
