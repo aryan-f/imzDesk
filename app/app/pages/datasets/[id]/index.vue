@@ -1,70 +1,34 @@
 <script setup lang="ts">
+import type { DatasetPaneItem } from '~/components/datasets/Pane.vue'
 import type { DatasetFile, DatasetKind, DatasetManifest, DatasetSample } from '~/types/datasets'
 import type { FileType } from '~/types/filesystem'
 import type { WorkspaceSettings } from '~/types/images'
 
-type DatasetFilterField = 'filename' | 'dirpath' | 'tags' | 'annotations'
-type TextFilterOperator = 'contains' | 'not_contains' | 'starts_with' | 'not_starts_with' | 'ends_with' | 'not_ends_with' | 'is_exactly' | 'is_not_exactly'
-type PresenceFilterOperator = 'has' | 'has_not'
-type DatasetFilterOperator = TextFilterOperator | PresenceFilterOperator
-
-interface DatasetFilter {
-  id: string
-  enabled: boolean
-  field: DatasetFilterField
-  operator: DatasetFilterOperator
-  value: string
-}
-
 const route = useRoute()
 const activity = useActivity()
-const { fileIcon, fileIconColorClass } = useFileIcon()
-const { tagColorStyle } = useTagColors()
 const endpoint = '/api/datasets/manifest'
 const filesEndpoint = '/api/datasets/files'
 const workspaceSettingsEndpoint = '/api/workspace/settings'
-const fileDragType = 'application/x-imzdesk-dataset-files'
 const splitDragType = 'application/x-imzdesk-dataset-split'
 const datasetId = computed(() => String(route.params.id))
 const dataset = ref<DatasetManifest | null>(null)
 const selectedPaths = ref(new Set<string>())
 const selectedSampleKeys = ref(new Set<string>())
-const filters = ref<DatasetFilter[]>([])
 const newSplit = ref('')
 const addingSplit = ref(false)
 const deletingSplit = ref<string | null>(null)
 const draggedSplit = ref<string | null>(null)
 const splitOrderChanged = ref(false)
 const saving = ref(false)
+const reloading = ref(false)
 const datasetUrl = computed(() => `${endpoint}/${datasetId.value}`)
-const { data: loadedDataset } = useFetch<DatasetManifest | null>(datasetUrl, { default: () => null, lazy: true })
-const { data: files, status: filesStatus } = useFetch<DatasetFile[]>(filesEndpoint, { default: () => [], lazy: true })
-const { data: workspaceSettings } = useFetch<WorkspaceSettings>(workspaceSettingsEndpoint, { default: () => ({ labels: [] }), lazy: true })
+const { data: loadedDataset, refresh: refreshDataset } = useFetch<DatasetManifest | null>(datasetUrl, { default: () => null, lazy: true })
+const { data: files, status: filesStatus, refresh: refreshFiles } = useFetch<DatasetFile[]>(filesEndpoint, { default: () => [], lazy: true })
+const { data: workspaceSettings, refresh: refreshWorkspaceSettings } = useFetch<WorkspaceSettings>(workspaceSettingsEndpoint, { default: () => ({ labels: [] }), lazy: true })
 
 watch(loadedDataset, (value) => {
   dataset.value = value ? structuredClone(value) : null
 }, { immediate: true })
-
-const fieldOptions: Array<{ label: string, value: DatasetFilterField }> = [
-  { label: 'Filename', value: 'filename' },
-  { label: 'Directory', value: 'dirpath' },
-  { label: 'Tags', value: 'tags' },
-  { label: 'Annotations', value: 'annotations' },
-]
-const textOperatorOptions: Array<{ label: string, value: TextFilterOperator }> = [
-  { label: 'Contains', value: 'contains' },
-  { label: 'Does not contain', value: 'not_contains' },
-  { label: 'Starts with', value: 'starts_with' },
-  { label: 'Does not start with', value: 'not_starts_with' },
-  { label: 'Ends with', value: 'ends_with' },
-  { label: 'Does not end with', value: 'not_ends_with' },
-  { label: 'Is exactly', value: 'is_exactly' },
-  { label: 'Is not exactly', value: 'is_not_exactly' },
-]
-const presenceOperatorOptions: Array<{ label: string, value: PresenceFilterOperator }> = [
-  { label: 'Has', value: 'has' },
-  { label: 'Has not', value: 'has_not' },
-]
 
 const splitNames = computed(() => Object.keys(dataset.value?.splits ?? {}))
 const filesLoading = computed(() => filesStatus.value === 'pending')
@@ -96,18 +60,9 @@ const rawAvailableFiles = computed(() => {
     .filter(file => file.type && allowedFileTypes(dataset.value?.kind).includes(file.type))
     .filter(file => !usedPaths.value.has(file.path))
 })
-const activeFilters = computed(() => filters.value.filter(filter => filter.enabled && filter.value.trim()))
-const availableFiles = computed(() => rawAvailableFiles.value.filter(file => activeFilters.value.every(filter => matchesDatasetFilter(file, filter))))
+const availableItems = computed<DatasetPaneItem[]>(() => rawAvailableFiles.value.map(file => ({ id: file.path, files: [file] })))
 const tagFilterOptions = computed(() => [...new Set((files.value ?? []).flatMap(file => file.tags))].sort())
 const labelFilterOptions = computed(() => workspaceSettings.value.labels.map(label => ({ label: label.name, value: label.id })))
-const allAvailableSelected = computed(() => availableFiles.value.length > 0 && availableFiles.value.every(file => selectedPaths.value.has(file.path)))
-const selectAllAvailableChecked = computed({
-  get: () => allAvailableSelected.value,
-  set: (checked: boolean | 'indeterminate') => {
-    if (checked === true) selectAllAvailable()
-    else deselectAllAvailable()
-  },
-})
 
 function allowedFileTypes(kind?: DatasetKind) {
   if (kind === 'wsi') return ['WSI'] as FileType[]
@@ -123,6 +78,10 @@ function sampleFiles(sample: DatasetSample) {
   return [fileByPath(sample.wsi), fileByPath(sample.msi)].filter((file): file is DatasetFile => Boolean(file))
 }
 
+function splitItems(split: string): DatasetPaneItem[] {
+  return splitSamples(split).map(sample => ({ id: sample.id, files: sampleFiles(sample) }))
+}
+
 function splitSamples(split: string) {
   return dataset.value?.splits[split] ?? []
 }
@@ -131,90 +90,36 @@ function sampleKey(split: string, sample: DatasetSample) {
   return `${split}:${sample.id}`
 }
 
-function parentPath(file: DatasetFile) {
-  return file.parent === '.' ? '' : file.parent
-}
-
-function selectAvailable(file: DatasetFile) {
+function toggleAvailable(path: string) {
   const selected = new Set(selectedPaths.value)
-  if (selected.has(file.path)) selected.delete(file.path)
-  else selected.add(file.path)
+  if (selected.has(path)) selected.delete(path)
+  else selected.add(path)
   selectedPaths.value = selected
 }
 
-function isSelected(file: DatasetFile) {
-  return selectedPaths.value.has(file.path)
-}
-
-function selectAllAvailable() {
+function selectAvailable(ids: string[]) {
   const selected = new Set(selectedPaths.value)
-  for (const file of availableFiles.value) selected.add(file.path)
+  for (const id of ids) selected.add(id)
   selectedPaths.value = selected
 }
 
-function deselectAllAvailable() {
+function deselectAvailable(ids: string[]) {
   const selected = new Set(selectedPaths.value)
-  for (const file of availableFiles.value) selected.delete(file.path)
+  for (const id of ids) selected.delete(id)
   selectedPaths.value = selected
-}
-
-function addFilter(field: DatasetFilterField = 'filename') {
-  filters.value.push({
-    id: crypto.randomUUID(),
-    enabled: true,
-    field,
-    operator: defaultFilterOperator(field),
-    value: '',
-  })
-}
-
-function removeFilter(filter: DatasetFilter) {
-  filters.value = filters.value.filter(value => value !== filter)
-}
-
-function setFilterField(filter: DatasetFilter, field: DatasetFilterField) {
-  filter.field = field
-  filter.operator = defaultFilterOperator(field)
-  filter.value = ''
-}
-
-function defaultFilterOperator(field: DatasetFilterField): DatasetFilterOperator {
-  return field === 'filename' || field === 'dirpath' ? 'contains' : 'has'
-}
-
-function operatorOptions(filter: DatasetFilter) {
-  return filter.field === 'filename' || filter.field === 'dirpath' ? textOperatorOptions : presenceOperatorOptions
-}
-
-function matchesDatasetFilter(file: DatasetFile, filter: DatasetFilter) {
-  const value = filter.value.trim().toLowerCase()
-  if (!value) return true
-  if (filter.field === 'filename') return matchesTextFilter(file.name.toLowerCase(), filter.operator as TextFilterOperator, value)
-  if (filter.field === 'dirpath') return matchesTextFilter(parentPath(file).toLowerCase(), filter.operator as TextFilterOperator, value)
-  if (filter.field === 'tags') {
-    const hasTag = file.tags.some(tag => tag.toLowerCase() === value)
-    return filter.operator === 'has' ? hasTag : !hasTag
-  }
-  const hasAnnotation = file.annotation_labels.some(label => label.id === filter.value)
-  return filter.operator === 'has' ? hasAnnotation : !hasAnnotation
-}
-
-function matchesTextFilter(source: string, operator: TextFilterOperator, value: string) {
-  if (operator === 'contains') return source.includes(value)
-  if (operator === 'not_contains') return !source.includes(value)
-  if (operator === 'starts_with') return source.startsWith(value)
-  if (operator === 'not_starts_with') return !source.startsWith(value)
-  if (operator === 'ends_with') return source.endsWith(value)
-  if (operator === 'not_ends_with') return !source.endsWith(value)
-  if (operator === 'is_exactly') return source === value
-  return source !== value
 }
 
 function isSampleSelected(split: string, sample: DatasetSample) {
   return selectedSampleKeys.value.has(sampleKey(split, sample))
 }
 
-function selectSample(split: string, sample: DatasetSample) {
+function selectedSplitIds(split: string) {
+  return splitSamples(split).filter(sample => isSampleSelected(split, sample)).map(sample => sample.id)
+}
+
+function toggleSample(split: string, id: string) {
+  const sample = splitSamples(split).find(sample => sample.id === id)
+  if (!sample) return
   const selected = new Set(selectedSampleKeys.value)
   const key = sampleKey(split, sample)
   if (selected.has(key)) selected.delete(key)
@@ -222,21 +127,25 @@ function selectSample(split: string, sample: DatasetSample) {
   selectedSampleKeys.value = selected
 }
 
-function allSplitSamplesSelected(split: string) {
-  const samples = splitSamples(split)
-  return samples.length > 0 && samples.every(sample => selectedSampleKeys.value.has(sampleKey(split, sample)))
-}
-
 function hasSplitSampleSelection(split: string) {
   return splitSamples(split).some(sample => selectedSampleKeys.value.has(sampleKey(split, sample)))
 }
 
-function toggleSelectAllSplit(split: string, checked: boolean | 'indeterminate') {
+function selectSplitItems(split: string, ids: string[]) {
   const selected = new Set(selectedSampleKeys.value)
   for (const sample of splitSamples(split)) {
+    if (!ids.includes(sample.id)) continue
     const key = sampleKey(split, sample)
-    if (checked === true) selected.add(key)
-    else selected.delete(key)
+    selected.add(key)
+  }
+  selectedSampleKeys.value = selected
+}
+
+function deselectSplitItems(split: string, ids: string[]) {
+  const selected = new Set(selectedSampleKeys.value)
+  for (const sample of splitSamples(split)) {
+    if (!ids.includes(sample.id)) continue
+    selected.delete(sampleKey(split, sample))
   }
   selectedSampleKeys.value = selected
 }
@@ -246,21 +155,15 @@ function sampleId(sample: Partial<DatasetSample>) {
   return source.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80) || crypto.randomUUID()
 }
 
-function dragAvailable(event: DragEvent, file: DatasetFile) {
-  const paths = selectedPaths.value.has(file.path) ? [...selectedPaths.value] : [file.path]
-  event.dataTransfer?.setData(fileDragType, JSON.stringify(paths))
-}
-
-function selectedSampleFiles(paths?: string[]) {
-  if (paths) return paths.map(path => fileByPath(path)).filter((file): file is DatasetFile => Boolean(file))
+function selectedSampleFiles() {
   return selectedFiles.value
 }
 
-async function addToSplit(split: string, paths?: string[]) {
+async function addToSplit(split: string) {
   if (!dataset.value) return
   const samples = dataset.value.splits[split]
   if (!samples) return
-  const selected = selectedSampleFiles(paths)
+  const selected = selectedSampleFiles()
   if (dataset.value.kind === 'paired') {
     const wsi = selected.filter(file => file.type === 'WSI')
     const msi = selected.filter(file => file.type === 'MSI')
@@ -287,22 +190,12 @@ function clearSelectedPaths(paths: string[]) {
   selectedPaths.value = selected
 }
 
-function dropOnSplit(event: DragEvent, split: string) {
-  const splitPayload = event.dataTransfer?.getData(splitDragType)
-  if (splitPayload) {
-    draggedSplit.value = null
-    return
-  }
-  const payload = event.dataTransfer?.getData(fileDragType)
-  if (!payload) return
-  const paths = JSON.parse(payload)
-  if (Array.isArray(paths)) addToSplit(split, paths)
-}
-
-async function dropSample(split: string, sample: DatasetSample) {
+async function dropSample(split: string, id: string) {
   if (!dataset.value) return
   const samples = dataset.value.splits[split]
   if (!samples) return
+  const sample = samples.find(sample => sample.id === id)
+  if (!sample) return
   dataset.value.splits[split] = samples.filter(value => value !== sample)
   const selected = new Set(selectedSampleKeys.value)
   selected.delete(sampleKey(split, sample))
@@ -405,6 +298,23 @@ async function saveDataset() {
   dataset.value.name = name
   await persistDataset()
 }
+
+async function reloadFromDisk() {
+  reloading.value = true
+  const task = activity.startTask('Reloading dataset')
+  try {
+    selectedPaths.value = new Set()
+    selectedSampleKeys.value = new Set()
+    await Promise.all([
+      refreshDataset(),
+      refreshFiles(),
+      refreshWorkspaceSettings(),
+    ])
+  } finally {
+    activity.endTask(task)
+    reloading.value = false
+  }
+}
 </script>
 
 <template>
@@ -418,156 +328,50 @@ async function saveDataset() {
         </label>
         <UInput id="dataset-name" v-model="dataset.name" size="sm" class="w-80" :color="validDatasetName ? 'neutral' : 'error'" @keyup.enter="saveDataset" />
         <UButton label="Save" icon="i-lucide-check" color="primary" size="sm" :loading="saving" :disabled="saving || !validDatasetName" @click="saveDataset" />
+        <div class="ms-auto" />
+        <UButton label="Reload From Disk" icon="i-lucide-refresh-cw" color="neutral" variant="soft" size="sm" :loading="reloading" @click="reloadFromDisk" />
       </section>
       <section class="grid min-h-0 flex-1 gap-4 lg:grid-cols-[24rem_1fr]">
-        <aside class="flex min-h-0 flex-col rounded-lg border border-default bg-muted">
-          <div class="flex h-12 items-center gap-2 border-b border-default px-3">
-            <h2 class="text-sm font-semibold text-muted">
-              Available
-            </h2>
-            <UBadge :label="String(availableFiles.length)" color="neutral" variant="soft" size="sm" />
-            <UIcon v-if="filesLoading" name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
-            <div class="ms-auto" />
-            <UCheckbox
-              v-model="selectAllAvailableChecked"
-              label="Select All"
-              size="sm"
-              :disabled="!availableFiles.length"
-              :ui="{ root: 'items-center', wrapper: 'w-auto ms-1.5', label: 'leading-4' }"
-            />
-            <UPopover>
-              <UButton icon="i-lucide-filter" color="neutral" variant="ghost" size="sm" square />
-              <template #content>
-                <div class="w-[42rem] space-y-3 p-3">
-                  <div class="flex items-center justify-between">
-                    <div class="text-sm font-semibold text-default">
-                      Filters
-                    </div>
-                    <UButton label="Add Filter" icon="i-lucide-plus" color="neutral" variant="soft" size="sm" @click="addFilter()" />
-                  </div>
-                  <div v-if="filters.length" class="space-y-2">
-                    <div v-for="filter in filters" :key="filter.id" class="grid grid-cols-[auto_8rem_10rem_1fr_auto] items-center gap-2">
-                      <UCheckbox v-model="filter.enabled" size="sm" :ui="{ root: 'items-center' }" />
-                      <USelect
-                        :model-value="filter.field"
-                        :items="fieldOptions"
-                        size="sm"
-                        @update:model-value="setFilterField(filter, $event as DatasetFilterField)"
-                      />
-                      <USelect v-model="filter.operator" :items="operatorOptions(filter)" size="sm" />
-                      <UInput v-if="filter.field === 'filename' || filter.field === 'dirpath'" v-model="filter.value" size="sm" placeholder="Value" />
-                      <UInputMenu v-else-if="filter.field === 'tags'" v-model="filter.value" :items="tagFilterOptions" mode="autocomplete" create-item="always" size="sm" placeholder="Tag" />
-                      <USelectMenu v-else v-model="filter.value" :items="labelFilterOptions" value-key="value" size="sm" placeholder="Annotation label" />
-                      <UButton icon="i-lucide-trash-2" color="neutral" variant="ghost" size="sm" square @click="removeFilter(filter)" />
-                    </div>
-                  </div>
-                  <div v-else class="py-2 text-sm text-muted">
-                    No filters.
-                  </div>
-                </div>
-              </template>
-            </UPopover>
-          </div>
-          <div class="min-h-0 flex-1 overflow-y-auto p-2">
-            <button
-              v-for="file in availableFiles"
-              :key="file.path"
-              draggable="true"
-              class="mb-1 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-elevated"
-              :class="isSelected(file) ? 'bg-elevated' : ''"
-              @click="selectAvailable(file)"
-              @dragstart="dragAvailable($event, file)"
-            >
-              <span class="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border border-default" :class="isSelected(file) ? 'bg-info text-inverted border-info' : 'bg-default text-transparent'">
-                <UIcon name="i-lucide-check" class="size-3" />
-              </span>
-              <UIcon :name="fileIcon(file)" :class="[fileIconColorClass(file), 'mt-0.5 size-4 shrink-0']" />
-              <span class="min-w-0 flex-1">
-                <span class="block truncate font-data text-xs text-dimmed">{{ parentPath(file) }}</span>
-                <span class="block truncate font-data text-sm text-default">{{ file.name }}</span>
-                <span class="mt-1 flex min-h-5 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
-                  <template v-if="file.tags.length">
-                    <UBadge v-for="tag in file.tags" :key="tag" :label="tag" color="neutral" variant="soft" size="sm" class="max-w-24 shrink-0 px-1.5 py-0.75" :style="tagColorStyle(tag)" />
-                  </template>
-                  <span v-else class="text-xs leading-5 text-dimmed">
-                    No tags.
-                  </span>
-                </span>
-                <span class="mt-0.5 flex min-h-5 min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap">
-                  <template v-if="file.annotation_labels.length">
-                    <UBadge v-for="label in file.annotation_labels" :key="label.id" :label="`${label.name} (${label.count})`" color="neutral" variant="soft" size="sm" class="max-w-24 shrink-0 px-1.5 py-0.75" :style="{ backgroundColor: `${label.color}22`, borderColor: `${label.color}66`, color: label.color }" />
-                  </template>
-                  <span v-else class="text-xs leading-5 text-dimmed">
-                    No annotations.
-                  </span>
-                </span>
-              </span>
-            </button>
-          </div>
-        </aside>
+        <DatasetsPane
+          title="Available"
+          :items="availableItems"
+          :selected-ids="[...selectedPaths]"
+          :loading="filesLoading"
+          :item-drop-visible="false"
+          :tag-options="tagFilterOptions"
+          :label-options="labelFilterOptions"
+          @toggle-item="toggleAvailable"
+          @select-items="selectAvailable"
+          @deselect-items="deselectAvailable"
+        />
         <div class="-mx-3 -my-3 min-w-0 overflow-x-auto overflow-y-visible px-3 py-3">
           <TransitionGroup name="split-pane" tag="div" class="flex h-full min-w-max gap-4">
-            <section
+            <DatasetsPane
               v-for="split in splitNames"
               :key="split"
-              class="flex w-80 shrink-0 flex-col rounded-lg border border-default bg-muted"
-              :class="draggedSplit === split ? 'split-pane-dragging' : 'split-pane-idle'"
-              @dragover.prevent="dragOverSplit($event, split)"
-              @drop.prevent="dropOnSplit($event, split)"
-            >
-              <div class="flex min-h-12 flex-wrap items-center gap-2 border-b border-default px-3 py-2">
-                <div
-                  class="flex min-w-0  cursor-grab items-center gap-1.5 active:cursor-grabbing"
-                  draggable="true"
-                  @dragstart="beginSplitDrag($event, split)"
-                  @dragend="endSplitDrag"
-                >
-                  <UIcon name="i-lucide-grip-vertical" class="size-4 shrink-0 text-dimmed" />
-                  <h2 class="min-w-0 truncate font-data text-sm font-semibold text-muted">
-                    {{ split }}
-                  </h2>
-                </div>
-                <div class="flex-1 flex items-center">
-                  <UBadge :label="String(splitSamples(split).length)" color="neutral" variant="soft" size="sm" />
-                </div>
-                <UCheckbox
-                  :model-value="allSplitSamplesSelected(split)"
-                  label="Select All"
-                  size="sm"
-                  :disabled="!splitSamples(split).length"
-                  :ui="{ root: 'items-center', wrapper: 'w-auto ms-1.5' }"
-                  @update:model-value="toggleSelectAllSplit(split, $event)"
-                />
-                <UButton v-if="hasSelection" icon="i-lucide-plus" color="neutral" variant="soft" size="sm" square :disabled="!canAddSelection" @click="addToSplit(split)" />
-                <UTooltip v-if="hasSplitSampleSelection(split)" text="Drop selected samples">
-                  <UButton icon="i-lucide-circle-minus" color="neutral" variant="soft" size="sm" square @click="dropSelectedSamples(split)" />
-                </UTooltip>
-                <UButton icon="i-lucide-trash-2" color="neutral" variant="ghost" size="sm" square @click="deletingSplit = split" />
-              </div>
-              <div class="min-h-0 flex-1 overflow-y-auto p-2">
-                <div v-for="sample in splitSamples(split)" :key="sample.id" class="mb-2 rounded-md border border-default bg-default p-2">
-                  <div class="flex items-start gap-2">
-                    <UButton color="neutral" variant="ghost" size="xs" square class="mt-0.5 size-4 shrink-0 rounded border border-default p-0" :class="isSampleSelected(split, sample) ? 'bg-info text-inverted border-info hover:bg-info' : 'bg-default text-transparent'" @click="selectSample(split, sample)">
-                      <UIcon name="i-lucide-check" class="size-3" />
-                    </UButton>
-                    <div class="min-w-0 flex-1">
-                      <template v-for="file in sampleFiles(sample)" :key="file.path">
-                        <div class="mb-1 flex min-w-0 gap-2">
-                          <UIcon :name="fileIcon(file)" :class="[fileIconColorClass(file), 'mt-0.5 size-4 shrink-0']" />
-                          <span class="min-w-0">
-                            <span class="block truncate font-data text-sm text-default">{{ file.name }}</span>
-                            <span class="block truncate font-data text-xs text-dimmed">{{ parentPath(file) }}</span>
-                          </span>
-                        </div>
-                      </template>
-                    </div>
-                    <UTooltip text="Drop sample">
-                      <UButton icon="i-lucide-circle-minus" color="neutral" variant="ghost" size="xs" square @click="dropSample(split, sample)" />
-                    </UTooltip>
-                  </div>
-                </div>
-              </div>
-            </section>
+              class="w-80 shrink-0"
+              :title="split"
+              :items="splitItems(split)"
+              :selected-ids="selectedSplitIds(split)"
+              :draggable-title="true"
+              :add-visible="hasSelection"
+              :add-disabled="!canAddSelection"
+              :drop-selected-visible="hasSplitSampleSelection(split)"
+              :delete-visible="true"
+              :drag-class="draggedSplit === split ? 'split-pane-dragging' : 'split-pane-idle'"
+              :tag-options="tagFilterOptions"
+              :label-options="labelFilterOptions"
+              @toggle-item="toggleSample(split, $event)"
+              @select-items="selectSplitItems(split, $event)"
+              @deselect-items="deselectSplitItems(split, $event)"
+              @add="addToSplit(split)"
+              @drop-item="dropSample(split, $event)"
+              @drop-selected="dropSelectedSamples(split)"
+              @delete="deletingSplit = split"
+              @title-dragstart="beginSplitDrag($event, split)"
+              @title-dragend="endSplitDrag"
+              @pane-dragover="dragOverSplit($event, split)"
+            />
             <UButton
               key="add-split"
               color="neutral"
