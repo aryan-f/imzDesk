@@ -299,12 +299,8 @@ function defaultLabel() {
   return labels()[0] ?? { id: 'positive', name: 'Positive', color: '#16a34a' }
 }
 
-function labelForAnnotation(annotation: Annotation): Label {
-  return labels().find(label => label.id === annotation.label) ?? {
-    id: annotation.label,
-    name: annotation.label,
-    color: '#64748b',
-  }
+function labelForAnnotation(annotation: Annotation): Label | undefined {
+  return labels().find(label => label.id === annotation.label)
 }
 
 async function buildTileSource(filepath: string) {
@@ -952,10 +948,11 @@ function updateRenderedAnnotations() {
     .map((annotation) => {
       const renderOwner = annotationRenderOwner(annotation)
       if (!renderOwner) return null
+      const label = labelForAnnotation(annotation)
+      if (!label) return null
       const points = annotationRenderPoints(annotation, renderOwner)
         .map(point => annotationPointToElementPoint(point, renderOwner))
         .filter((point): point is Point => Boolean(point))
-      const label = labelForAnnotation(annotation)
       return {
         id: `${annotation.owner}-${annotation.id}`,
         annotationId: annotation.id,

@@ -298,13 +298,10 @@ const labelOptions = computed(() => workspaceSettings.value.labels.map(label => 
   value: label.id,
   color: label.color,
 })))
+const visibleAnnotations = computed(() => annotations.value.filter(annotation => workspaceSettings.value.labels.some(label => label.id === annotation.label)))
 
-function labelForAnnotation(annotation: Annotation): Label {
-  return workspaceSettings.value.labels.find(label => label.id === annotation.label) ?? {
-    id: annotation.label,
-    name: annotation.label,
-    color: '#64748b',
-  }
+function labelForAnnotation(annotation: Annotation): Label | undefined {
+  return workspaceSettings.value.labels.find(label => label.id === annotation.label)
 }
 
 async function updateAnnotation(annotation: ListedAnnotation, patch: Partial<Pick<Annotation, 'label' | 'notes' | 'export' | 'project'>>) {
@@ -479,9 +476,9 @@ onBeforeUnmount(() => {
         </div>
       </template>
       <template v-else-if="tab === 'annotations'">
-        <div v-if="annotations.length" class="space-y-2">
+        <div v-if="visibleAnnotations.length" class="space-y-2">
           <div
-            v-for="annotation in annotations"
+            v-for="annotation in visibleAnnotations"
             :key="`${annotation.owner}-${annotation.id}`"
             :ref="annotationRowRef(annotation.id)"
             class="space-y-1.5 rounded-md border p-2 transition-colors"
@@ -499,7 +496,7 @@ onBeforeUnmount(() => {
               <USelect :model-value="annotation.label" :items="labelOptions" size="sm" class="font-data" @update:model-value="updateAnnotationLabel(annotation, $event)">
                 <template #trailing>
                   <div class="relative size-4 overflow-hidden rounded border border-default">
-                    <div class="absolute inset-0" :style="{ backgroundColor: labelForAnnotation(annotation).color }" />
+                    <div class="absolute inset-0" :style="{ backgroundColor: labelForAnnotation(annotation)?.color }" />
                   </div>
                 </template>
               </USelect>
