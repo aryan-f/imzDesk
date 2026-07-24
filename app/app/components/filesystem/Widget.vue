@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type {BreadcrumbItem} from '@nuxt/ui'
-import {type FilesystemEntry} from '~/types/filesystem'
+import type { BreadcrumbItem } from '@nuxt/ui'
+import type { FilesystemEntry } from '~/types/filesystem'
 
 const { state, openDirectory } = useWorkspace()
 
@@ -74,6 +74,7 @@ const filteredEntries = computed(() => {
   if (!query) return items
   return items.filter(entry => entry.name.toLowerCase().includes(query))
 })
+const { virtualItems, virtualHeight, updateScroll, itemStyle } = useVirtualList(filteredEntries, 25.14, 16)
 </script>
 
 <template>
@@ -95,14 +96,18 @@ const filteredEntries = computed(() => {
         size="md"
       />
     </div>
-    <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-      <template v-for="entry in filteredEntries" :key="entry.path">
+    <div ref="listEl" class="min-h-0 flex-1 overflow-y-auto px-3 pb-3" @scroll="updateScroll">
+      <div class="relative" :style="{ height: virtualHeight }">
         <FilesystemEntry
+          v-for="{ item: entry, index } in virtualItems"
+          :key="entry.path"
           :entry="entry"
+          class="absolute left-0 w-full"
           :active="entry.path === activePath"
+          :style="itemStyle(index)"
           @select="activePath = $event.path"
         />
-      </template>
+      </div>
     </div>
   </div>
 </template>
