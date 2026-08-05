@@ -68,6 +68,11 @@ const scalingOptions = [
   { label: 'Z-score', value: 'zscore' },
 ]
 
+const availableScalingOptions = computed(() => scalingOptions.map(option => ({
+  ...option,
+  disabled: draft.reduction.method === 'nmf' && option.value !== 'minmax',
+})))
+
 const defaultColormap = {
   label: 'Viridis',
   value: 'viridis',
@@ -122,6 +127,9 @@ watch(
       draft.reduction.components = 1
     } else if (draft.reduction.components < 3) {
       draft.reduction.components = 3
+    }
+    if (draft.reduction.method === 'nmf') {
+      draft.reduction.scaling = 'minmax'
     }
   },
   { immediate: true },
@@ -199,7 +207,7 @@ function apply() {
                 <USelect v-model="draft.reduction.method" :items="availableReductionOptions" :ui="selectUi" class="w-full" />
               </UFormField>
               <UFormField label="Scaling" size="sm">
-                <USelect v-model="draft.reduction.scaling" :items="scalingOptions" :ui="selectUi" class="w-full" />
+                <USelect v-model="draft.reduction.scaling" :items="availableScalingOptions" :ui="selectUi" class="w-full" :disabled="draft.reduction.method === 'tic'" />
               </UFormField>
               <UFormField v-if="usesColormap" label="Colormap" size="sm">
                 <UPopover :ui="colormapPopoverUi">

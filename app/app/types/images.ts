@@ -36,7 +36,7 @@ export interface MSIDisplay {
   reduction: {
     method: 'tic' | 'pca' | 'nmf' | 'tsne' | 'umap'
     components: number
-    scaling: string
+    scaling: 'robust' | 'minmax' | 'zscore'
     colormap: string
   }
 }

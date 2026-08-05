@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PreprocessingSettings(BaseModel):
@@ -21,8 +21,14 @@ class CubingSettings(BaseModel):
 class ReductionSettings(BaseModel):
     method: Literal['tic', 'pca', 'nmf', 'tsne', 'umap'] = 'tic'
     components: int = 1
-    scaling: str = 'robust'
+    scaling: Literal['robust', 'minmax', 'zscore'] = 'robust'
     colormap: str = 'viridis'
+
+    @model_validator(mode='after')
+    def validate_nmf_scaling(self):
+        if self.method == 'nmf' and self.scaling != 'minmax':
+            raise ValueError('NMF requires min-max scaling.')
+        return self
 
 
 class MSIImageRequest(BaseModel):

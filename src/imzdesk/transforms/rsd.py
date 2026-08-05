@@ -154,6 +154,74 @@ class ToDense(Transform):
         )
 
 
+class Scale(Transform):
+
+    def __init__(self, method: str = 'robust'):
+        """
+        Scale each dense feature across pixels.
+
+        Parameters
+        ----------
+        method:
+            Scaling method. Supported values are ``'robust'`` (median and
+            interquartile range), ``'minmax'``, and ``'zscore'``.
+
+        Attributes
+        ----------
+        method: str
+            Scaling method.
+        """
+        self.method = method
+
+    def __call__(self, image: SImage | DImage) -> SImage | DImage:
+        if isinstance(image, SImage):
+            return self._scale_sparse(image)
+
+        values = np.asarray(image.values, dtype=np.float32)
+        scalar = values.ndim == 1
+        features = values[:, None] if scalar else values
+
+        match self.method.lower():
+            case 'robust':
+                center = np.nanmedian(features, axis=0)
+                lower, upper = np.nanpercentile(features, [25, 75], axis=0)
+                scale = upper - lower
+            case 'minmax':
+                center = np.nanmin(features, axis=0)
+                scale = np.nanmax(features, axis=0) - center
+            case 'zscore':
+                center = np.nanmean(features, axis=0)
+                scale = np.nanstd(features, axis=0)
+            case other:
+                raise ValueError(f'Unknown scaling method: {other}')
+
+        scale = np.where(np.isfinite(scale) & (scale != 0), scale, 1)
+        scaled = (features - center) / scale
+        if scalar:
+            scaled = scaled[:, 0]
+        return DImage(values=scaled, coordinates=image.coordinates.copy())
+
+    def _scale_sparse(self, image: SImage) -> SImage:
+        if self.method.lower() != 'minmax':
+            raise ValueError('Sparse images only support min-max scaling.')
+
+        values = image.values.astype(np.float32).tocsc(copy=True)
+        if values.data.size and np.nanmin(values.data) < 0:
+            raise ValueError('Sparse min-max scaling requires nonnegative values.')
+
+        minimums = values.min(axis=0).toarray().ravel()
+        maximums = values.max(axis=0).toarray().ravel()
+        ranges = maximums - minimums
+        scales = np.where(np.isfinite(ranges) & (ranges != 0), ranges, 1)
+
+        for column in np.flatnonzero(minimums):
+            start, stop = values.indptr[column:column + 2]
+            values.data[start:stop] -= minimums[column]
+        values = values @ sparse.diags(1 / scales, format='csc')
+        values.eliminate_zeros()
+        return SImage(values=values.tocsr(), coordinates=image.coordinates.copy())
+
+
 class TIC(Transform):
     """
     Sum each pixel's feature vector into one intensity value.

@@ -129,6 +129,87 @@ def test_to_dense_converts_sparse_image_and_preserves_dense_image():
     assert T.ToDense()(dense_image) is dense_image
 
 
+def test_scale_applies_feature_wise_robust_scaling():
+    image = DImage(
+        values=np.array([
+            [1.0, 10.0],
+            [2.0, 20.0],
+            [3.0, 30.0],
+        ]),
+        coordinates=np.array([[0, 0], [1, 0], [2, 0]]),
+    )
+
+    result = T.Scale('robust')(image)
+
+    np.testing.assert_allclose(result.values, [[-1, -1], [0, 0], [1, 1]])
+    np.testing.assert_array_equal(result.coordinates, image.coordinates)
+
+
+def test_scale_applies_feature_wise_minmax_scaling():
+    image = DImage(
+        values=np.array([
+            [1.0, 10.0],
+            [2.0, 30.0],
+            [3.0, 20.0],
+        ]),
+        coordinates=np.array([[0, 0], [1, 0], [2, 0]]),
+    )
+
+    result = T.Scale('minmax')(image)
+
+    np.testing.assert_allclose(result.values, [[0, 0], [0.5, 1], [1, 0.5]])
+
+
+def test_scale_applies_minmax_scaling_without_densifying_sparse_image():
+    image = SImage(
+        values=sparse.csr_matrix([
+            [1.0, 0.0],
+            [2.0, 2.0],
+            [3.0, 4.0],
+        ]),
+        coordinates=np.array([[0, 0], [1, 0], [2, 0]]),
+    )
+
+    result = T.Scale('minmax')(image)
+
+    assert sparse.issparse(result.values)
+    np.testing.assert_allclose(result.values.toarray(), [[0, 0], [0.5, 0.5], [1, 1]])
+    np.testing.assert_array_equal(result.coordinates, image.coordinates)
+
+
+def test_scale_applies_feature_wise_zscore_scaling():
+    image = DImage(
+        values=np.array([1.0, 2.0, 3.0]),
+        coordinates=np.array([[0, 0], [1, 0], [2, 0]]),
+    )
+
+    result = T.Scale('zscore')(image)
+
+    np.testing.assert_allclose(result.values, [-np.sqrt(1.5), 0, np.sqrt(1.5)])
+    assert result.values.ndim == 1
+
+
+def test_scale_maps_constant_features_to_zero():
+    image = DImage(
+        values=np.array([[5.0, 1.0], [5.0, 2.0]]),
+        coordinates=np.array([[0, 0], [1, 0]]),
+    )
+
+    result = T.Scale('minmax')(image)
+
+    np.testing.assert_allclose(result.values, [[0, 0], [0, 1]])
+
+
+def test_scale_rejects_unknown_method():
+    image = DImage(
+        values=np.array([1.0]),
+        coordinates=np.array([[0, 0]]),
+    )
+
+    with np.testing.assert_raises_regex(ValueError, 'Unknown scaling method'):
+        T.Scale('unknown')(image)
+
+
 def test_tic_sums_sparse_rows():
     sparse_image = SImage(
         values=sparse.csr_matrix([[1, 0, 2], [0, 3, 4]], dtype=np.float32),

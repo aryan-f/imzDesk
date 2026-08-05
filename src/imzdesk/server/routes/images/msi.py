@@ -62,13 +62,18 @@ def image_impl(filepath: pathlib.Path, settings: schema.MSIImageRequest):
         case 'pca':
             transforms.extend([
                 T.ToDense(),
+                T.Scale(settings.reduction.scaling),
                 T.PCA(number_of_components=settings.reduction.components)
             ])
         case 'nmf':
-            transforms.append(T.NMF(number_of_components=settings.reduction.components))
+            transforms.extend([
+                T.Scale(settings.reduction.scaling),
+                T.NMF(number_of_components=settings.reduction.components),
+            ])
         case 'tsne':
             transforms.extend([
                 T.ToDense(),
+                T.Scale(settings.reduction.scaling),
                 T.TSNE(number_of_components=settings.reduction.components)
             ])
         case other:
