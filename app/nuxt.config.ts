@@ -18,15 +18,6 @@ export default defineNuxtConfig({
     fallback: 'dark',
   },
 
-  vite: {
-    optimizeDeps: {
-      include: [
-        'openseadragon', // CJS
-        'pretty-bytes',
-      ]
-    }
-  },
-
   compatibilityDate: '2025-01-15',
 
   nitro: {
@@ -35,6 +26,15 @@ export default defineNuxtConfig({
         target: 'http://127.0.0.1:8000/api',
         changeOrigin: true,
       },
+    },
+  },
+
+  vite: {
+    optimizeDeps: {
+      include: [
+        'openseadragon', // CJS
+        'pretty-bytes',
+      ],
     },
   },
 
