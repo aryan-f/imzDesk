@@ -1,8 +1,11 @@
 import argparse
+import logging
 import os
 import pathlib
 
 import uvicorn
+
+logger = logging.getLogger(__name__)
 
 
 def run_server():
@@ -26,6 +29,15 @@ def run_server():
     if args.batch_size is not None:
         os.environ['BATCH_SIZE'] = str(args.batch_size)
     os.environ['DEVICE'] = args.device
+
+    logger.debug(
+        'Launching uvicorn host=%s port=%d reload=%s access_log=%s workspace=%s',
+        args.host,
+        args.port,
+        args.reload,
+        args.access_log,
+        args.workspace.resolve(),
+    )
 
     uvicorn.run(
         'imzdesk.server.app:create_app',

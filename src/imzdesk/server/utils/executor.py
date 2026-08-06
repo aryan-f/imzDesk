@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Concatenate, ParamSpec, TypeVar, cast
 
@@ -24,7 +25,27 @@ def threaded(function: Callable[P, R]) -> Callable[Concatenate[Request, P], Awai
     async def wrapper(request: Request, *args: P.args, **kwargs: P.kwargs) -> R:
         loop = asyncio.get_running_loop()
         call = functools.partial(function, *args, **kwargs)
-        logger.debug(f'Spawning worker thread for {function.__qualname__}')
-        return await loop.run_in_executor(request.app.state.executor, call)
+        started = time.perf_counter()
+        logger.debug(
+            'Dispatching worker function=%s positional_args=%d keyword_args=%s',
+            function.__qualname__,
+            len(args),
+            sorted(kwargs),
+        )
+        try:
+            result = await loop.run_in_executor(request.app.state.executor, call)
+        except Exception:
+            logger.exception(
+                'Worker failed function=%s duration_ms=%.2f',
+                function.__qualname__,
+                (time.perf_counter() - started) * 1000,
+            )
+            raise
+        logger.debug(
+            'Worker completed function=%s duration_ms=%.2f',
+            function.__qualname__,
+            (time.perf_counter() - started) * 1000,
+        )
+        return result
 
     return cast(Callable[Concatenate[Request, P], Awaitable[R]], wrapper)

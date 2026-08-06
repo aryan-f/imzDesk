@@ -1,6 +1,9 @@
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class PreprocessingSettings(BaseModel):
@@ -27,7 +30,9 @@ class ReductionSettings(BaseModel):
     @model_validator(mode='after')
     def validate_nmf_scaling(self):
         if self.method == 'nmf' and self.scaling != 'minmax':
+            logger.warning('Rejected MSI reduction settings method=nmf scaling=%s', self.scaling)
             raise ValueError('NMF requires min-max scaling.')
+        logger.debug('Validated MSI reduction settings method=%s scaling=%s components=%d', self.method, self.scaling, self.components)
         return self
 
 

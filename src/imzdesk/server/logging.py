@@ -37,11 +37,16 @@ class CustomHandler(logging.Handler):
 
     @classmethod
     def serialize(cls, record: logging.LogRecord):
+        message = record.getMessage()
+        if record.exc_info:
+            message = f'{message}\n{logging.Formatter().formatException(record.exc_info)}'
+        if record.stack_info:
+            message = f'{message}\n{record.stack_info}'
         return {
             'name': record.name,
             'level': record.levelname,
             'created': record.created,
             'module': record.module,
-            'msg': record.msg,
+            'msg': message,
             'thread': record.threadName,
         }

@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 async def listdir(request: Request, dirpath: str) -> List[filesystem.FilesystemEntry]:
     workspace = request.app.state.settings.workspace
 
+    logger.debug('Listing workspace directory dirpath=%s', dirpath)
     directory = await resolve_path(workspace, dirpath, is_dir=True)
     paths = [directory / name for name in await aiofiles.os.listdir(directory) if not name.startswith('.')]
     stats = await asyncio.gather(*(aiofiles.os.stat(path) for path in paths))
@@ -24,7 +25,7 @@ async def listdir(request: Request, dirpath: str) -> List[filesystem.FilesystemE
         key=lambda entry: (not stat.S_ISDIR(entry[1].st_mode), entry[0].name.lower()),
     )
 
-    return [
+    result = [
         filesystem.FilesystemEntry(
             name=path.name,
             path=str(path.relative_to(workspace)),
@@ -35,3 +36,5 @@ async def listdir(request: Request, dirpath: str) -> List[filesystem.FilesystemE
         )
         for path, info in entries
     ]
+    logger.debug('Listed workspace directory path=%s entries=%d', directory, len(result))
+    return result
