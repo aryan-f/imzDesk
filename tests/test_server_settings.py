@@ -12,7 +12,7 @@ def test_batch_size_defaults_to_current_embedding_batch_size(tmp_path, monkeypat
 
     settings = Settings(workspace=tmp_path)
 
-    assert settings.batch_size == 120
+    assert settings.batch_size == 128
 
 
 def test_batch_size_can_be_configured_by_environment(tmp_path, monkeypatch):

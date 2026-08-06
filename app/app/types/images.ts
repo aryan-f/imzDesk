@@ -41,6 +41,19 @@ export interface MSIDisplay {
   }
 }
 
+export interface MSISpectrum {
+  pixel: { x: number, y: number }
+  coordinate: { x: number, y: number }
+  mz: number[]
+  intensities: number[]
+}
+
+export interface SelectedMSISpectrum extends MSISpectrum {
+  id: string
+  color: string
+  visible: boolean
+}
+
 export interface Annotation {
   id: string
   label: string

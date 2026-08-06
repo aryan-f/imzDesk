@@ -65,7 +65,7 @@ class ToRImage(Transform):
 
 class Embed(Transform):
 
-    def __init__(self, model: str = '', batch_size: int = 120):
+    def __init__(self, model: str = '', batch_size: int = 128):
         """
         Embed ragged image data with an external model.
 
@@ -76,6 +76,8 @@ class Embed(Transform):
         batch_size: int
             Number of spectra embedded in each inference batch.
         """
+        if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size < 1:
+            raise ValueError('batch_size must be a positive integer.')
         assert model in MODELS, f'Unknown model: {model}'
         constructor = MODELS[model]
         self.model = constructor()

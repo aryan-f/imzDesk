@@ -1,10 +1,11 @@
 import functools
 import logging
 import pathlib
+import threading
 from typing import List
 
 import numpy as np
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 import imzdesk.transforms as T
@@ -25,6 +26,11 @@ logger = logging.getLogger(__name__)
 @functools.lru_cache(maxsize=4)
 def get_msi_instance(filepath: pathlib.Path | str):
     return MSI(filepath, cache_portable=False)
+
+
+@functools.cache
+def get_msi_lock(filepath: pathlib.Path | str):
+    return threading.Lock()
 
 
 @router.post('/image')
@@ -100,6 +106,40 @@ def image_response(image_path: pathlib.Path):
             'ETag': f'"{cache_key_hash}"',
         },
     )
+
+
+@router.get('/spectrum', response_model=schema.MSISpectrumResponse)
+async def spectrum(request: Request, filepath: str, x: int, y: int):
+    workspace = request.app.state.settings.workspace
+    filepath = await resolve_path(workspace, filepath)
+    return await spectrum_impl(request, filepath, x, y)
+
+
+@threaded
+def spectrum_impl(filepath: pathlib.Path, x: int, y: int):
+    if x < 0 or y < 0:
+        raise HTTPException(status_code=404, detail='The selected MSI pixel does not exist.')
+
+    msi = get_msi_instance(filepath)
+    coordinates = np.asarray(msi.coordinates)
+    if coordinates.ndim != 2 or coordinates.shape[0] == 0 or coordinates.shape[1] < 2:
+        raise HTTPException(status_code=404, detail='The MSI does not contain spatial coordinates.')
+
+    minimum = coordinates[:, :2].min(axis=0).astype(np.int64)
+    native_x = int(minimum[0] + x)
+    native_y = int(minimum[1] + y)
+    try:
+        with get_msi_lock(filepath), msi:
+            mz, intensities = msi.at(native_x, native_y)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail='The selected MSI pixel does not contain a spectrum.') from error
+
+    return {
+        'pixel': {'x': x, 'y': y},
+        'coordinate': {'x': native_x, 'y': native_y},
+        'mz': np.asarray(mz, dtype=np.float64).tolist(),
+        'intensities': np.asarray(intensities, dtype=np.float64).tolist(),
+    }
 
 
 @router.get('/registered')

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type OpenSeadragon from 'openseadragon'
 import type { TileSource } from 'openseadragon'
-import type { Annotation, Label, MSIDisplay, MSIMetadata, WorkspaceSettings, WSIMetadata } from '~/types/images'
+import type { Annotation, Label, MSIDisplay, MSIMetadata, MSISpectrum, SelectedMSISpectrum, WorkspaceSettings, WSIMetadata } from '~/types/images'
 
 type CropRect = { x: number, y: number, width: number, height: number }
 type CropHandle = 'move' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
@@ -17,6 +17,7 @@ type ManualRegistrationState = { origin: Point, xVector: Point, yVector: Point }
 type ManualRegistrationFrame = { origin: Point, width: number, height: number, angle: number }
 type MsiImageOverlay = { width: number, height: number, transform: string, opacity: number }
 type ScaleHint = { width: number, label: string }
+type RenderedSpectrumMarker = { id: string, label: number, color: string, visible: boolean, point: Point }
 
 const { state, setActive, closeFile } = useWorkspace()
 const activity = useActivity()
@@ -78,7 +79,19 @@ const manualRegistrationFrame = ref<ManualRegistrationFrame | null>(null)
 const manualRegistrationOriginalMatrix = ref<number[][] | null>(null)
 const msiImageOverlay = ref<MsiImageOverlay | null>(null)
 const scaleHint = ref<ScaleHint | null>(null)
+const spectrumPicking = ref(false)
+const spectrumViewerOpen = ref(false)
+const spectra = ref<SelectedMSISpectrum[]>([])
+const renderedSpectrumMarkers = ref<RenderedSpectrumMarker[]>([])
+const spectrumRequestCount = ref(0)
+const spectrumError = ref('')
+const spectrumLoading = computed(() => spectrumRequestCount.value > 0)
+const spectrumColors = ['#38bdf8', '#f472b6', '#facc15', '#34d399', '#fb7185', '#a78bfa', '#fb923c', '#22d3ee']
+const pendingSpectrumPixels = new Set<string>()
+let spectrumColorIndex = 0
+let spectrumGeneration = 0
 
+const panelEl = ref<HTMLElement | null>(null)
 const viewerEl = ref<HTMLElement | null>(null)
 const viewportEl = ref<HTMLElement | null>(null)
 
@@ -468,6 +481,7 @@ function updateCropOverlay() {
 
 function startCropEdit() {
   if (!viewerReady.value || !showWsi.value) return
+  spectrumPicking.value = false
   cropDraft.value = cropRect.value ? { ...cropRect.value } : cropFromCurrentView()
   cropEditing.value = true
   cropEnabled.value = false
@@ -760,7 +774,7 @@ async function fetchAnnotations() {
   updateRenderedAnnotations()
 }
 
-function pointerViewportPoint(event: PointerEvent) {
+function pointerViewportPoint(event: MouseEvent | PointerEvent) {
   if (!viewer || !osd || !viewportEl.value) return null
   const rect = viewportEl.value.getBoundingClientRect()
   return viewer.viewport.pointFromPixel(new osd.Point(event.clientX - rect.left, event.clientY - rect.top), true)
@@ -821,6 +835,131 @@ function annotationPointToElementPoint(point: Point, owner: AnnotationOwner): Po
   }
   const pixel = viewer.viewport.pixelFromPoint(viewportPoint, true)
   return { x: pixel.x, y: pixel.y }
+}
+
+function updateRenderedSpectrumMarkers() {
+  renderedSpectrumMarkers.value = spectra.value
+    .map((spectrum, index) => {
+      const point = annotationPointToElementPoint({
+        x: spectrum.pixel.x + 0.5,
+        y: spectrum.pixel.y + 0.5,
+      }, 'MSI')
+      if (!point) return null
+      return {
+        id: spectrum.id,
+        label: index + 1,
+        color: spectrum.color,
+        visible: spectrum.visible,
+        point,
+      }
+    })
+    .filter((marker): marker is RenderedSpectrumMarker => Boolean(marker))
+}
+
+function setSpectrumVisibility(id: string, visible: boolean) {
+  const spectrum = spectra.value.find(item => item.id === id)
+  if (!spectrum) return
+  spectrum.visible = visible
+  updateRenderedSpectrumMarkers()
+}
+
+function removeSpectrum(id: string) {
+  spectra.value = spectra.value.filter(spectrum => spectrum.id !== id)
+  updateRenderedSpectrumMarkers()
+}
+
+function clearSpectra() {
+  spectrumGeneration += 1
+  spectra.value = []
+  spectrumRequestCount.value = 0
+  spectrumError.value = ''
+  pendingSpectrumPixels.clear()
+  spectrumColorIndex = 0
+  updateRenderedSpectrumMarkers()
+}
+
+function closeSpectrumViewer() {
+  spectrumPicking.value = false
+  spectrumViewerOpen.value = false
+}
+
+function resetSpectrumState() {
+  spectrumGeneration += 1
+  spectrumPicking.value = false
+  spectrumViewerOpen.value = false
+  spectra.value = []
+  renderedSpectrumMarkers.value = []
+  spectrumRequestCount.value = 0
+  spectrumError.value = ''
+  pendingSpectrumPixels.clear()
+  spectrumColorIndex = 0
+}
+
+function toggleSpectrumPicking() {
+  if (!viewerReady.value || !msiImageLayer || cropEditing.value || manualRegistrationEditing.value) return
+  spectrumPicking.value = !spectrumPicking.value
+  spectrumViewerOpen.value = true
+  spectrumError.value = ''
+  if (spectrumPicking.value) {
+    cancelAnnotationDraft()
+    activeAnnotationTool.value = 'Select'
+  }
+}
+
+function selectAnnotationTool(tool: string) {
+  spectrumPicking.value = false
+  activeAnnotationTool.value = tool
+}
+
+async function selectPixelSpectrum(event: OpenSeadragon.CanvasClickEvent) {
+  if (!spectrumPicking.value || !event.quick || !viewer || !msiFilepath.value) return
+  event.preventDefaultAction = true
+  const viewportPoint = viewer.viewport.pointFromPixel(event.position, true)
+  const imagePoint = viewportPointToMsiImagePoint({ x: viewportPoint.x, y: viewportPoint.y })
+  const size = imageContentSize()
+  if (!imagePoint || !size) return
+
+  const x = Math.floor(imagePoint.x)
+  const y = Math.floor(imagePoint.y)
+  if (x < 0 || y < 0 || x >= size.x || y >= size.y) return
+
+  spectrumViewerOpen.value = true
+  spectrumError.value = ''
+  const existing = spectra.value.find(spectrum => spectrum.pixel.x === x && spectrum.pixel.y === y)
+  if (existing) {
+    existing.visible = true
+    updateRenderedSpectrumMarkers()
+    return
+  }
+
+  const generation = spectrumGeneration
+  const key = `${generation}:${x}:${y}`
+  if (pendingSpectrumPixels.has(key)) return
+  pendingSpectrumPixels.add(key)
+  spectrumRequestCount.value += 1
+  const task = activity.startTask(`Loading spectrum (${x}, ${y})`)
+  try {
+    const spectrum = await $fetch<MSISpectrum>('/api/images/msi/spectrum', {
+      query: { filepath: msiFilepath.value, x, y },
+    })
+    if (generation !== spectrumGeneration) return
+    spectra.value.push({
+      ...spectrum,
+      id: crypto.randomUUID(),
+      color: spectrumColors[spectrumColorIndex % spectrumColors.length]!,
+      visible: true,
+    })
+    spectrumColorIndex += 1
+    updateRenderedSpectrumMarkers()
+  } catch (error) {
+    if (generation !== spectrumGeneration) return
+    const detail = (error as { data?: { detail?: unknown } })?.data?.detail
+    spectrumError.value = typeof detail === 'string' ? detail : 'Unable to load the selected spectrum.'
+  } finally {
+    pendingSpectrumPixels.delete(key)
+    if (generation === spectrumGeneration) spectrumRequestCount.value -= 1
+    activity.endTask(task)
+  }
 }
 
 function annotationDraftElementPoints() {
@@ -1152,6 +1291,7 @@ function applyManualRegistrationState() {
 
 function startManualRegistrationEdit() {
   if (!overlaid.value || !registrationMatrix.value) return
+  spectrumPicking.value = false
   const state = registrationMatrixToManualState(registrationMatrix.value)
   if (!state) return
   if (cropEditing.value) cancelCropEdit()
@@ -1444,6 +1584,7 @@ function applyMsiLayerTransform() {
   msiImageLayer.setOpacity(overlaid.value ? 0 : 1)
   updateMsiImageOverlay()
   updateRenderedAnnotations()
+  updateRenderedSpectrumMarkers()
   updateScaleHint()
   if (!overlaid.value || !registrationMatrix.value || !wsiImageLayer || !wsiMeta.value || !msiMeta.value?.mpp) return
 
@@ -1482,6 +1623,7 @@ function applyMsiLayerTransform() {
   msiImageLayer.setRotation(angle, true)
   updateMsiImageOverlay()
   updateRenderedAnnotations()
+  updateRenderedSpectrumMarkers()
   updateScaleHint()
 }
 
@@ -1573,6 +1715,7 @@ async function init() {
       animationTime: 0.4,
     })
     viewer.addHandler('tile-drawing', applyTileSmoothing)
+    viewer.addHandler('canvas-click', selectPixelSpectrum)
     viewer.addHandler('animation', updateCropOverlay)
     viewer.addHandler('animation-finish', updateCropOverlay)
     viewer.addHandler('resize', updateCropOverlay)
@@ -1585,6 +1728,9 @@ async function init() {
     viewer.addHandler('animation', updateRenderedAnnotations)
     viewer.addHandler('animation-finish', updateRenderedAnnotations)
     viewer.addHandler('resize', updateRenderedAnnotations)
+    viewer.addHandler('animation', updateRenderedSpectrumMarkers)
+    viewer.addHandler('animation-finish', updateRenderedSpectrumMarkers)
+    viewer.addHandler('resize', updateRenderedSpectrumMarkers)
     viewer.addHandler('animation', updateScaleHint)
     viewer.addHandler('animation-finish', updateScaleHint)
     viewer.addHandler('resize', updateScaleHint)
@@ -1658,7 +1804,7 @@ function zoomBy(factor: number) {
 }
 
 async function toggleFullscreen() {
-  const target = viewportEl.value
+  const target = panelEl.value
   if (!target) return
 
   if (document.fullscreenElement) {
@@ -1669,7 +1815,20 @@ async function toggleFullscreen() {
 }
 
 function syncFullscreenState() {
-  isFullscreen.value = document.fullscreenElement === viewportEl.value
+  isFullscreen.value = document.fullscreenElement === panelEl.value
+}
+
+async function resizeViewer() {
+  await nextTick()
+  if (!viewer || !osd || !viewerEl.value) return
+  viewer.viewport.resize(new osd.Point(viewerEl.value.clientWidth, viewerEl.value.clientHeight), true)
+  viewer.forceRedraw()
+  updateCropOverlay()
+  updateMsiImageOverlay()
+  updateManualRegistrationFrame()
+  updateRenderedAnnotations()
+  updateRenderedSpectrumMarkers()
+  updateScaleHint()
 }
 
 function destroy() {
@@ -1683,6 +1842,7 @@ function destroy() {
   rightPanDrag = null
   annotations.value = []
   renderedAnnotations.value = []
+  renderedSpectrumMarkers.value = []
   manualRegistrationEditing.value = false
   manualRegistrationSaving.value = false
   manualRegistration.value = null
@@ -1707,6 +1867,7 @@ onMounted(() => {
   window.addEventListener('resize', updateMsiImageOverlay)
   window.addEventListener('resize', updateManualRegistrationFrame)
   window.addEventListener('resize', updateRenderedAnnotations)
+  window.addEventListener('resize', updateRenderedSpectrumMarkers)
   window.addEventListener('resize', updateScaleHint)
   window.addEventListener('imzdesk:annotations-changed', fetchAnnotations)
   window.addEventListener('imzdesk:workspace-settings-changed', loadWorkspaceSettings)
@@ -1714,12 +1875,14 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  resetSpectrumState()
   destroy()
   document.removeEventListener('fullscreenchange', syncFullscreenState)
   window.removeEventListener('resize', updateCropOverlay)
   window.removeEventListener('resize', updateMsiImageOverlay)
   window.removeEventListener('resize', updateManualRegistrationFrame)
   window.removeEventListener('resize', updateRenderedAnnotations)
+  window.removeEventListener('resize', updateRenderedSpectrumMarkers)
   window.removeEventListener('resize', updateScaleHint)
   window.removeEventListener('imzdesk:annotations-changed', fetchAnnotations)
   window.removeEventListener('imzdesk:workspace-settings-changed', loadWorkspaceSettings)
@@ -1727,6 +1890,7 @@ onBeforeUnmount(() => {
 })
 
 watch(() => [props.wsi, props.msi, props.displayWsi, props.displayMsi], ([wsi, msi], [previousWsi, previousMsi]) => {
+  if (msi !== previousMsi) resetSpectrumState()
   destroy()
   if (wsi !== previousWsi || msi !== previousMsi) cropEnabled.value = true
   init()
@@ -1740,10 +1904,13 @@ watch(activeAnnotationTool, () => {
   cancelAnnotationDraft()
 })
 
+watch(spectrumViewerOpen, resizeViewer)
+
 watch(overlaid, () => {
   if (!overlaid.value && manualRegistrationEditing.value) cancelManualRegistrationEdit()
   applyMsiLayerTransform()
   updateRenderedAnnotations()
+  updateRenderedSpectrumMarkers()
 })
 
 function closeAll() {
@@ -1753,7 +1920,7 @@ function closeAll() {
 </script>
 
 <template>
-  <div :class="{ 'max-w-1/2': other, 'last:border-l': other }" class="relative flex flex-col flex-1 border-default">
+  <div ref="panelEl" :class="{ 'max-w-1/2': other && !isFullscreen, 'last:border-l': other }" class="relative flex flex-col flex-1 border-default bg-default">
     <div class="flex items-center bg-elevated px-3 py-1 text-base border-b border-default">
       <div v-if="showWsi" class="flex truncate gap-2 cursor-pointer" @click="setActive('WSI')">
         <UBadge label="WSI" color="primary" variant="soft" class="px-1 py-px" />
@@ -1789,7 +1956,7 @@ function closeAll() {
       @pointerup.capture="endRightPan"
       @pointercancel.capture="endRightPan"
     >
-      <div ref="viewerEl" class="absolute inset-0" />
+      <div ref="viewerEl" class="absolute inset-0" :class="spectrumPicking ? '[&_.openseadragon-canvas]:cursor-crosshair' : ''" />
       <img
         v-if="msiImageUrl && msiImageOverlay"
         :src="msiImageUrl"
@@ -1819,6 +1986,14 @@ function closeAll() {
             class="font-data text-xs font-bold"
           >
             {{ annotation.name }}
+          </text>
+        </g>
+      </svg>
+      <svg v-if="renderedSpectrumMarkers.length" class="pointer-events-none absolute inset-0 z-[5] size-full">
+        <g v-for="marker in renderedSpectrumMarkers" :key="marker.id" :opacity="marker.visible ? 1 : 0.45">
+          <circle :cx="marker.point.x" :cy="marker.point.y" r="9" :fill="marker.color" stroke="white" stroke-width="2" />
+          <text :x="marker.point.x" :y="marker.point.y" dy="0.35em" fill="#0b0d12" text-anchor="middle" class="font-data text-xs font-bold">
+            {{ marker.label }}
           </text>
         </g>
       </svg>
@@ -1945,7 +2120,7 @@ function closeAll() {
               :variant="activeAnnotationTool === tool.label ? 'soft' : 'ghost'"
               size="sm"
               square
-              @click="activeAnnotationTool = tool.label"
+              @click="selectAnnotationTool(tool.label)"
             />
           </UTooltip>
         </div>
@@ -2022,6 +2197,18 @@ function closeAll() {
               @click="startCropEdit"
             />
           </UTooltip>
+          <UTooltip v-if="showMsi" :text="spectrumPicking ? 'Stop sampling spectra' : 'Sample pixel spectra'" :delay-duration="250">
+            <UButton
+              :aria-label="spectrumPicking ? 'Stop sampling spectra' : 'Sample pixel spectra'"
+              icon="i-lucide-pipette"
+              :color="spectrumPicking ? 'secondary' : 'neutral'"
+              :variant="spectrumPicking ? 'soft' : 'ghost'"
+              :disabled="!viewerReady || cropEditing || manualRegistrationEditing"
+              size="sm"
+              square
+              @click="toggleSpectrumPicking"
+            />
+          </UTooltip>
           <UTooltip v-if="showMsi" text="Register" :delay-duration="250">
             <UButton
               icon="mdi-resize"
@@ -2079,5 +2266,15 @@ function closeAll() {
         :class="showWsi ? 'inset-e-4' : 'inset-s-4'"
       />
     </div>
+    <ViewportSpectraViewer
+      v-if="spectrumViewerOpen"
+      :spectra="spectra"
+      :loading="spectrumLoading"
+      :error="spectrumError"
+      @visibility="setSpectrumVisibility"
+      @remove="removeSpectrum"
+      @clear="clearSpectra"
+      @close="closeSpectrumViewer"
+    />
   </div>
 </template>

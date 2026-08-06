@@ -38,6 +38,18 @@ class MSIImageRequest(BaseModel):
     reduction: ReductionSettings = Field(default_factory=ReductionSettings)
 
 
+class PixelCoordinate(BaseModel):
+    x: int
+    y: int
+
+
+class MSISpectrumResponse(BaseModel):
+    pixel: PixelCoordinate
+    coordinate: PixelCoordinate
+    mz: list[float]
+    intensities: list[float]
+
+
 class MSIRegistrationRequest(BaseModel):
     filepath: str
     reference: str
