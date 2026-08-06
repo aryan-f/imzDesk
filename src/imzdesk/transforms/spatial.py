@@ -118,6 +118,7 @@ def _apply_spatial(transform: Callable | None, image: SpatialImage) -> SpatialIm
             target_mpp=transform.target_mpp,
             shape=(image.geometry.height, image.geometry.width),
             crop=transform.crop,
+            interpolation=transform.interpolation,
         )
     else:
         result = transform(source)

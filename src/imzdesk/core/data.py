@@ -1,7 +1,7 @@
 from typing import Any, Generic, NamedTuple, TypeVar
 
 import numpy as np
-from scipy import sparse
+from scipy import ndimage, sparse
 
 from .geometry import Geometry, Transform
 
@@ -169,7 +169,13 @@ class DImage:
         self.values = np.asarray(values)
         self.coordinates = np.asarray(coordinates)
 
-    def to_image(self, target_mpp: float | tuple[float, float] | None = None, shape: tuple[int, int] | None = None, crop: bool = True):
+    def to_image(
+        self,
+        target_mpp: float | tuple[float, float] | None = None,
+        shape: tuple[int, int] | None = None,
+        crop: bool = True,
+        interpolation: str | None = None,
+    ):
         """
         Rasterize dense pixel values into a numpy image.
 
@@ -181,6 +187,10 @@ class DImage:
             Optional ``(height, width)`` output shape.
         crop:
             Accepted for API symmetry with image file classes.
+        interpolation:
+            Optional raster interpolation. ``'nearest'`` fills every output
+            pixel from the nearest measured coordinate. By default, locations
+            without a measurement remain zero.
 
         Returns
         -------
@@ -188,12 +198,22 @@ class DImage:
             Rasterized image with shape ``(height, width)`` or
             ``(height, width, channels)``.
         """
+        if interpolation not in (None, 'nearest'):
+            raise ValueError(f'Unknown raster interpolation: {interpolation}')
         coordinates = self.coordinates.astype(np.int64)
         height, width = shape or (coordinates[:, 1].max() + 1, coordinates[:, 0].max() + 1)
         if self.values.ndim == 1:
             image = np.zeros((height, width), dtype=self.values.dtype)
-            image[coordinates[:, 1], coordinates[:, 0]] = self.values
-            return image
-        image = np.zeros((height, width, self.values.shape[1]), dtype=self.values.dtype)
+        else:
+            image = np.zeros((height, width, self.values.shape[1]), dtype=self.values.dtype)
         image[coordinates[:, 1], coordinates[:, 0]] = self.values
+        if interpolation == 'nearest' and len(coordinates):
+            measured = np.zeros((height, width), dtype=bool)
+            measured[coordinates[:, 1], coordinates[:, 0]] = True
+            nearest = ndimage.distance_transform_edt(
+                ~measured,
+                return_distances=False,
+                return_indices=True,
+            )
+            image = image[nearest[0], nearest[1]]
         return image

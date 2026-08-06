@@ -200,6 +200,27 @@ def test_parallel_rasterizes_dense_image_on_declared_spatial_canvas():
     np.testing.assert_allclose(result.msi.pixel_to_reference.matrix, Transform.scale(2).matrix)
 
 
+def test_parallel_interpolates_spaced_msi_pixels_on_declared_canvas():
+    dense = DImage(
+        values=np.array([1.0, 2.0]),
+        coordinates=np.array([[0, 0], [3, 0]]),
+    )
+    spatial = SpatialImage(
+        data=dense,
+        geometry=Geometry(width=4, height=2, mpp=1),
+        pixel_to_reference=Transform.identity(),
+    )
+    pair = PairedImage(wsi=spatial, msi=spatial, registration=Transform.identity())
+
+    result = T.Parallel(msi=T.ToImage(interpolation='nearest'))(pair)
+
+    np.testing.assert_array_equal(result.msi.data, [
+        [1, 1, 2, 2],
+        [1, 1, 2, 2],
+    ])
+    np.testing.assert_allclose(result.registration.matrix, Transform.identity().matrix)
+
+
 def test_random_crop_uses_same_region_for_registered_pair():
     values = np.arange(100, dtype=np.float32).reshape(10, 10)
     pair = PairedImage(

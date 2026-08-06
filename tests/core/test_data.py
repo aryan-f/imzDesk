@@ -51,3 +51,35 @@ def test_dimage_to_image_rasterizes_multichannel_values_with_shape():
     np.testing.assert_array_equal(raster[0, 1], [1, 10])
     np.testing.assert_array_equal(raster[1, 0], [2, 20])
     np.testing.assert_array_equal(raster[2, 2], [0, 0])
+
+
+def test_dimage_to_image_interpolates_nearest_measured_pixel():
+    image = DImage(
+        values=np.array([[1, 10], [2, 20]]),
+        coordinates=np.array([[0, 0], [3, 0]]),
+    )
+
+    raster = image.to_image(shape=(2, 4), interpolation='nearest')
+
+    np.testing.assert_array_equal(raster, [
+        [[1, 10], [1, 10], [2, 20], [2, 20]],
+        [[1, 10], [1, 10], [2, 20], [2, 20]],
+    ])
+
+
+def test_dimage_to_image_nearest_preserves_empty_canvas():
+    image = DImage(
+        values=np.empty((0, 2)),
+        coordinates=np.empty((0, 2), dtype=int),
+    )
+
+    raster = image.to_image(shape=(2, 3), interpolation='nearest')
+
+    np.testing.assert_array_equal(raster, np.zeros((2, 3, 2)))
+
+
+def test_dimage_to_image_rejects_unknown_interpolation():
+    image = DImage(values=np.array([1]), coordinates=np.array([[0, 0]]))
+
+    with np.testing.assert_raises_regex(ValueError, 'Unknown raster interpolation'):
+        image.to_image(interpolation='linear')
