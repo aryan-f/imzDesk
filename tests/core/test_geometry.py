@@ -34,6 +34,12 @@ def test_transform_composition_order():
     np.testing.assert_allclose(transform.apply([[1, 1]]), [[12, 2]])
 
 
+def test_transform_supports_axis_wise_scaling():
+    transform = Transform.scale((2, 3))
+
+    np.testing.assert_allclose(transform.apply([[1, 1]]), [[2, 3]])
+
+
 def test_transform_rotation_around_center():
     transform = Transform.rotation(np.pi / 2, center=(1, 1))
 

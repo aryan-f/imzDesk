@@ -48,7 +48,7 @@ dependencies = [
     "simpleitk>=2.3.1",
     "starlette>=1.3.1",
     "tqdm>=4.68.4",
-    "uvicorn[standard]>=0.48.0"
+    "uvicorn[standard]>=0.48.0",
 ]
 
 [project.urls]
@@ -59,10 +59,13 @@ Issues = "https://github.com/aryan-f/imzDesk/issues"
 Changelog = "https://github.com/aryan-f/imzDesk/releases"
 
 [project.optional-dependencies]
-extras = [
+embeddings = [
     "safetensors>=0.8.0",
     "torchvision~=0.27.1",
     "torch~=2.12.1",
+]
+examples = [
+    "jupyter>=1.1.1",
 ]
 
 [[tool.uv.index]]

@@ -89,10 +89,11 @@ class Transform:
         ]) @ cls.translation(-x, -y)
 
     @classmethod
-    def scale(cls, factor: float, center=(0.0, 0.0)) -> 'Transform':
+    def scale(cls, factor: float | tuple[float, float], center=(0.0, 0.0)) -> 'Transform':
+        factors = factor if isinstance(factor, tuple) else (factor, factor)
         x, y = center
         return cls.translation(x, y) @ cls([
-            [factor, 0, 0],
-            [0, factor, 0],
+            [factors[0], 0, 0],
+            [0, factors[1], 0],
             [0, 0, 1],
         ]) @ cls.translation(-x, -y)

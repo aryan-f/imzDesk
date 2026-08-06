@@ -24,11 +24,11 @@
 ## Installation
 
 ```shell
-pip install "imzdesk[extras]"
+pip install "imzdesk[embeddings,examples]"
 ```
 
 ## Usage
 
 ```shell
-python -m imzdesk <dirpath>
+imzdesk <dirpath>
 ```

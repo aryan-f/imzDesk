@@ -1,5 +1,39 @@
+from typing import Any, Generic, NamedTuple, TypeVar
+
 import numpy as np
 from scipy import sparse
+
+from .geometry import Geometry, Transform
+
+
+W = TypeVar('W')
+M = TypeVar('M')
+T = TypeVar('T')
+
+
+class PairedImage(NamedTuple, Generic[W, M]):
+    """A WSI-MSI pair and the transform mapping MSI pixels to WSI pixels."""
+
+    wsi: W
+    msi: M
+    registration: Transform | None = None
+
+
+class SpatialImage(NamedTuple, Generic[T]):
+    """Image data with its current pixel grid mapped into a reference frame."""
+
+    data: T
+    geometry: Geometry
+    pixel_to_reference: Transform
+
+
+class RaggedTensor(NamedTuple):
+    """Tensor representation of a ragged image."""
+
+    coordinates: Any
+    positions: Any
+    values: Any
+    offsets: Any
 
 
 class RImage:

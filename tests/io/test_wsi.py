@@ -82,6 +82,21 @@ def test_wsi_to_image_resizes_axis_wise_target_mpp(monkeypatch, tmp_path):
     assert image.slide.reads == [((0, 0), 1, (500, 250))]
 
 
+def test_wsi_read_region_returns_exact_requested_shape(monkeypatch, tmp_path):
+    monkeypatch.setattr(wsi_module.openslide, 'OpenSlide', FakeOpenSlide)
+    image = WSI(tmp_path / 'sample.ndpi')
+    image.metadata = wsi_module.WSIMetadata(
+        width=1000,
+        height=500,
+        mpp=metadata.Dimensions(x=0.5, y=1.0),
+    )
+
+    raster = image.read_region((100, 50), shape=(40, 60), target_mpp=(1.0, 2.0))
+
+    assert raster.shape == (40, 60, 3)
+    assert image.slide.reads == [((100, 50), 1, (60, 40))]
+
+
 def test_wsi_get_tile_forwards_deepzoom_coordinates(monkeypatch, tmp_path):
     monkeypatch.setattr(wsi_module.openslide, 'OpenSlide', FakeOpenSlide)
     image = WSI(tmp_path / 'sample.ndpi')
@@ -93,6 +108,44 @@ def test_wsi_get_tile_forwards_deepzoom_coordinates(monkeypatch, tmp_path):
     image.__dict__['deepzoom'] = FakeDeepZoom()
 
     assert image.get_tile(level=2, row=3, column=4) == (2, (4, 3))
+
+
+def test_wsi_constructs_deepzoom_with_metadata_tile_settings(monkeypatch, tmp_path):
+    monkeypatch.setattr(wsi_module.openslide, 'OpenSlide', FakeOpenSlide)
+    captured = {}
+
+    class FakeDeepZoom:
+        def __init__(self, slide, **kwargs):
+            captured['slide'] = slide
+            captured.update(kwargs)
+
+    monkeypatch.setattr(wsi_module.openslide.deepzoom, 'DeepZoomGenerator', FakeDeepZoom)
+    image = WSI(tmp_path / 'sample.ndpi')
+    image.metadata.tile_size = 512
+    image.metadata.tile_overlap = 8
+
+    assert isinstance(image.deepzoom, FakeDeepZoom)
+    assert captured == {
+        'slide': image.slide,
+        'tile_size': 512,
+        'overlap': 8,
+        'limit_bounds': False,
+    }
+
+
+def test_wsi_read_region_resamples_anisotropic_request(monkeypatch, tmp_path):
+    monkeypatch.setattr(wsi_module.openslide, 'OpenSlide', FakeOpenSlide)
+    image = WSI(tmp_path / 'sample.ndpi')
+    image.metadata = wsi_module.WSIMetadata(
+        width=1000,
+        height=500,
+        mpp=metadata.Dimensions(x=0.5, y=1.0),
+    )
+
+    raster = image.read_region((100.4, 50.6), shape=(40, 60), target_mpp=(1.0, 4.0))
+
+    assert raster.shape == (40, 60, 3)
+    assert image.slide.reads == [((100, 51), 1, (60, 80))]
 
 
 def test_wsi_context_manager_returns_self(monkeypatch, tmp_path):

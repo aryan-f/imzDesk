@@ -68,6 +68,30 @@ class WSI(ImageBase):
     def get_tile(self, level: int, row: int, column: int) -> Image.Image:
         return self.deepzoom.get_tile(level, (column, row))
 
+    def read_region(self, location, shape, target_mpp: float | tuple[float, float] | None = None) -> np.ndarray:
+        """Read a level-0 WSI region into an exact output pixel shape."""
+        output_height, output_width = shape
+        native_mpp = np.array([self.metadata.mpp.x, self.metadata.mpp.y], dtype=np.float64)
+        target_mpp = native_mpp if target_mpp is None else np.asarray(
+            target_mpp if isinstance(target_mpp, tuple) else (target_mpp, target_mpp),
+            dtype=np.float64,
+        )
+        target_downsample = target_mpp / native_mpp
+        level_downsamples = np.asarray(self.slide.level_downsamples, dtype=np.float64)
+        eligible = np.flatnonzero(level_downsamples <= target_downsample.min())
+        level = eligible[-1] if eligible.size else 0
+        downsample = level_downsamples[level]
+        level0_size = np.array([output_width, output_height], dtype=np.float64) * target_downsample
+        read_size = np.maximum(1, np.ceil(level0_size / downsample).astype(int))
+        image = self.slide.read_region(
+            tuple(np.round(location).astype(int)),
+            level,
+            tuple(read_size),
+        ).convert('RGB')
+        if image.size != (output_width, output_height):
+            image = image.resize((output_width, output_height), Image.Resampling.LANCZOS)
+        return np.asarray(image)
+
     def to_image(self, target_mpp: float | tuple[float, float] | None = None, shape=None, crop: bool = True) -> np.ndarray:
         """
         Read the whole slide as a numpy image near a target resolution.
