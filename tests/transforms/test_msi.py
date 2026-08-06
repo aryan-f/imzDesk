@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import imzdesk.transforms as T
+import imzdesk.transforms.msi as msi_module
 from imzdesk.core import RImage
 
 
@@ -84,3 +85,26 @@ def test_spatial_coordinates_rejects_unsupported_dimension_count():
 def test_embed_rejects_unknown_model():
     with pytest.raises(AssertionError, match='Unknown model'):
         T.Embed(model='unknown')
+
+
+@pytest.mark.parametrize('batch_size', [0, -1, 1.5])
+def test_embed_rejects_invalid_batch_size(batch_size):
+    with pytest.raises(ValueError, match='positive integer'):
+        T.Embed(model='roman-bushuiev/DreaMS', batch_size=batch_size)
+
+
+def test_embed_forwards_batch_size_to_model(monkeypatch):
+    calls = []
+
+    class FakeModel:
+        def embed(self, image, batch_size):
+            calls.append((image, batch_size))
+            return image
+
+    monkeypatch.setitem(msi_module.MODELS, 'test-model', FakeModel)
+    image = object()
+
+    result = T.Embed(model='test-model', batch_size=37)(image)
+
+    assert result is image
+    assert calls == [(image, 37)]

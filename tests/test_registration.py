@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+import imzdesk.registration as registration_module
 from imzdesk.core import Transform
 from imzdesk.core.metadata import BoundingBox, Dimensions
 from imzdesk.registration import (
@@ -152,3 +153,48 @@ def test_rotation_sweep_improves_orientation_for_simple_shape():
     warped = warp(moving.astype(float), transform, fixed.shape, order=0) > 0.5
 
     assert iou(fixed, warped) == 1
+
+
+def test_register_forwards_batch_size_to_embedding(monkeypatch):
+    captured = {}
+
+    class FakeEmbed:
+        def __init__(self, model, batch_size):
+            captured['model'] = model
+            captured['batch_size'] = batch_size
+
+    class FakeCompose:
+        def __init__(self, transforms):
+            self.transforms = transforms
+
+        def __call__(self, image):
+            return np.ones((2, 2), dtype=bool)
+
+    monkeypatch.setattr(registration_module.T, 'Embed', FakeEmbed)
+    monkeypatch.setattr(registration_module.T, 'Compose', FakeCompose)
+    monkeypatch.setattr(
+        registration_module,
+        'centroid_initialization',
+        lambda fixed, moving: Transform.identity(),
+    )
+    monkeypatch.setattr(
+        registration_module,
+        'rotation_sweep',
+        lambda fixed, moving, transform: transform,
+    )
+    monkeypatch.setattr(
+        registration_module,
+        'chamfer_refine',
+        lambda fixed, moving, transform: transform,
+    )
+    wsi = SimpleNamespace(metadata=SimpleNamespace(crop=None))
+    msi = SimpleNamespace(
+        metadata=SimpleNamespace(mpp=SimpleNamespace(x=10.0, y=20.0)),
+    )
+
+    registration_module.register(wsi, msi, batch_size=37)
+
+    assert captured == {
+        'model': 'roman-bushuiev/DreaMS',
+        'batch_size': 37,
+    }

@@ -11,6 +11,7 @@ def run_server():
     parser.add_argument('--host', default='127.0.0.1', help='server host (default: %(default)s)')
     parser.add_argument('--port', type=int, default=8000, help='server port (default: %(default)s)')
     parser.add_argument('--workers', type=int, default=None, help='number of workers (default: %(default)s)')
+    parser.add_argument('--batch-size', type=int, default=None, help='embedding inference batch size (default: %(default)s))',)
     parser.add_argument('--device', type=str, default='cuda', help='model inference device (default: %(default)s)')
     parser.add_argument('--loglevel', default='INFO', help='log level (default: %(default)s)')
     parser.add_argument('--access-log', action='store_true', help='enable access log (default: %(default)s)')
@@ -22,6 +23,8 @@ def run_server():
     os.environ['LOG_LEVEL'] = args.loglevel
     if args.workers is not None:
         os.environ['NUM_WORKERS'] = str(args.workers)
+    if args.batch_size is not None:
+        os.environ['BATCH_SIZE'] = str(args.batch_size)
     os.environ['DEVICE'] = args.device
 
     uvicorn.run(

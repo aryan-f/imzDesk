@@ -71,13 +71,10 @@ class Embed(Transform):
 
         Parameters
         ----------
-        model:
-            Model identifier.
-
-        Attributes
-        ----------
         model: str
             Model identifier.
+        batch_size: int
+            Number of spectra embedded in each inference batch.
         """
         assert model in MODELS, f'Unknown model: {model}'
         constructor = MODELS[model]

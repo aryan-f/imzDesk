@@ -6,7 +6,13 @@ import imzdesk.transforms as T
 from imzdesk.core import Transform
 
 
-def register(wsi, msi, target_mpp: float | tuple[float, float] | None = None, model: str = 'roman-bushuiev/DreaMS') -> Transform:
+def register(
+    wsi,
+    msi,
+    target_mpp: float | tuple[float, float] | None = None,
+    model: str = 'roman-bushuiev/DreaMS',
+    batch_size: int = 128,
+) -> Transform:
     """
     Register an MSI acquisition to a WSI.
 
@@ -20,6 +26,8 @@ def register(wsi, msi, target_mpp: float | tuple[float, float] | None = None, mo
         Registration raster resolution. Defaults to the axis-wise MSI mpp.
     model:
         Embedding model used for the MSI surrogate.
+    batch_size:
+        Number of spectra embedded in each inference batch.
 
     Returns
     -------
@@ -37,7 +45,7 @@ def register(wsi, msi, target_mpp: float | tuple[float, float] | None = None, mo
     moving_mask = T.Compose([
         T.ToRImage(),
         T.Normalize('tic'),
-        T.Embed(model=model),
+        T.Embed(model=model, batch_size=batch_size),
         T.Project(),
         T.ToImage(),
         T.Threshold(),

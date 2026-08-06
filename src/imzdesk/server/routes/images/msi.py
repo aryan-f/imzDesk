@@ -28,53 +28,54 @@ def get_msi_instance(filepath: pathlib.Path | str):
 
 
 @router.post('/image')
-async def image(request: Request, settings: schema.MSIImageRequest):
-    workspace = request.app.state.settings.workspace
-    filepath = await resolve_path(workspace, settings.filepath)
-    return await image_impl(request, filepath, settings)
+async def image(request: Request, params: schema.MSIImageRequest):
+    settings = request.app.state.settings
+    workspace = settings.workspace
+    filepath = await resolve_path(workspace, params.filepath)
+    return await image_impl(request, filepath, params, settings.batch_size)
 
 
 @threaded
-def image_impl(filepath: pathlib.Path, settings: schema.MSIImageRequest):
+def image_impl(filepath: pathlib.Path, params: schema.MSIImageRequest, batch_size: int):
     msi = get_msi_instance(filepath)
 
-    image_path = cache_path(msi, key=settings, suffix='.png')
+    image_path = cache_path(msi, key=params, suffix='.png')
 
     if image_path.exists():
         return image_response(image_path)
 
     transforms: List[T.Transform] = [
         T.ToRImage(),
-        T.Normalize(settings.preprocessing.normalization),
+        T.Normalize(params.preprocessing.normalization),
     ]
 
-    match settings.cubing.method:
+    match params.cubing.method:
         case 'bin':
-            transforms.append(T.Bin(minimum_channel=settings.cubing.mzMin, maximum_channel=settings.cubing.mzMax, bin_width=settings.cubing.binWidth))
+            transforms.append(T.Bin(minimum_channel=params.cubing.mzMin, maximum_channel=params.cubing.mzMax, bin_width=params.cubing.binWidth))
         case 'embed':
-            transforms.append(T.Embed(model=settings.cubing.model))
+            transforms.append(T.Embed(model=params.cubing.model, batch_size=batch_size))
         case other:
             raise RuntimeError(f'Unknown cubing method: {other}')
 
-    match settings.reduction.method:
+    match params.reduction.method:
         case 'tic':
             transforms.append(T.TIC())
         case 'pca':
             transforms.extend([
                 T.ToDense(),
-                T.Scale(settings.reduction.scaling),
-                T.PCA(number_of_components=settings.reduction.components)
+                T.Scale(params.reduction.scaling),
+                T.PCA(number_of_components=params.reduction.components)
             ])
         case 'nmf':
             transforms.extend([
-                T.Scale(settings.reduction.scaling),
-                T.NMF(number_of_components=settings.reduction.components),
+                T.Scale(params.reduction.scaling),
+                T.NMF(number_of_components=params.reduction.components),
             ])
         case 'tsne':
             transforms.extend([
                 T.ToDense(),
-                T.Scale(settings.reduction.scaling),
-                T.TSNE(number_of_components=settings.reduction.components)
+                T.Scale(params.reduction.scaling),
+                T.TSNE(number_of_components=params.reduction.components)
             ])
         case other:
             raise RuntimeError(f'Unknown reduction method: {other}')
@@ -82,7 +83,7 @@ def image_impl(filepath: pathlib.Path, settings: schema.MSIImageRequest):
     transform = T.Compose(transforms)
     image = transform(msi)
 
-    display = DImageDisplay(image, colormap=settings.reduction.colormap)
+    display = DImageDisplay(image, colormap=params.reduction.colormap)
     display.save(image_path, format='PNG')
 
     return image_response(image_path)
@@ -116,20 +117,21 @@ def registered_impl(filepath: pathlib.Path, reference: pathlib.Path):
 
 
 @router.post('/register')
-async def register(request: Request, settings: schema.MSIRegistrationRequest):
-    workspace = request.app.state.settings.workspace
-    filepath = await resolve_path(workspace, settings.filepath)
-    reference = await resolve_path(workspace, settings.reference)
-    return await register_impl(request, filepath, reference)
+async def register(request: Request, params: schema.MSIRegistrationRequest):
+    settings = request.app.state.settings
+    workspace = settings.workspace
+    filepath = await resolve_path(workspace, params.filepath)
+    reference = await resolve_path(workspace, params.reference)
+    return await register_impl(request, filepath, reference, settings.batch_size)
 
 
 @threaded
-def register_impl(filepath: pathlib.Path, reference: pathlib.Path):
+def register_impl(filepath: pathlib.Path, reference: pathlib.Path, batch_size: int):
     msi = get_msi_instance(filepath)
     wsi = get_wsi_instance(reference)
     wsi.metadata = wsi.read_metadata(wsi.filepath)
     transform_path = registration_transform_path(msi, reference)
-    transform = R.register(wsi, msi)
+    transform = R.register(wsi, msi, batch_size=batch_size)
     np.save(transform_path, transform.matrix, allow_pickle=False)
     return True
 
