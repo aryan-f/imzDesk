@@ -1,7 +1,6 @@
 import numpy as np
 
-from imzdesk.core import RImage, DImage
-from imzdesk.io import MSI
+from imzdesk.core import RImage
 from imzdesk.transforms.base import Transform
 from imzdesk.transforms.models import MODELS
 
@@ -16,7 +15,20 @@ class ToRImage(Transform):
     parsed by pyimzML.
     """
 
-    def __call__(self, image: MSI) -> RImage:
+    def __call__(self, image):
+        """
+        Read an MSI into an in-memory ragged image.
+
+        Parameters
+        ----------
+        image : imzdesk.io.MSI
+            Mass spectrometry image to read.
+
+        Returns
+        -------
+        RImage
+            Ragged spectra and spatial coordinates.
+        """
         coordinates = self._spatial_coordinates(image)
         lengths = np.asarray(image.reader.mzLengths, dtype=np.int64)
         intensity_lengths = np.asarray(image.reader.intensityLengths, dtype=np.int64)
@@ -49,7 +61,20 @@ class ToRImage(Transform):
         )
 
     @staticmethod
-    def _spatial_coordinates(image: MSI) -> np.ndarray:
+    def _spatial_coordinates(image):
+        """
+        Extract supported two-dimensional coordinates from an MSI.
+
+        Parameters
+        ----------
+        image : imzdesk.io.MSI
+            Mass spectrometry image.
+
+        Returns
+        -------
+        numpy.ndarray
+            Spatial coordinates with shape ``(n_pixels, 2)``.
+        """
         coordinates = np.asarray(image.coordinates)
         if coordinates.ndim != 2:
             raise ValueError('MSI coordinates must be a 2D array.')
@@ -65,15 +90,15 @@ class ToRImage(Transform):
 
 class Embed(Transform):
 
-    def __init__(self, model: str = '', batch_size: int = 128):
+    def __init__(self, model='', batch_size=128):
         """
         Embed ragged image data with an external model.
 
         Parameters
         ----------
-        model: str
+        model : str
             Model identifier.
-        batch_size: int
+        batch_size : int, default=128
             Number of spectra embedded in each inference batch.
         """
         if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size < 1:
@@ -83,5 +108,18 @@ class Embed(Transform):
         self.model = constructor()
         self.batch_size = batch_size
 
-    def __call__(self, image: RImage) -> DImage:
+    def __call__(self, image):
+        """
+        Embed every spectrum in a ragged image.
+
+        Parameters
+        ----------
+        image : RImage
+            Ragged spectra to embed.
+
+        Returns
+        -------
+        imzdesk.core.DImage
+            Dense embedding vectors and source coordinates.
+        """
         return self.model.embed(image, batch_size=self.batch_size)

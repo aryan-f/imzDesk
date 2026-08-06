@@ -8,4 +8,7 @@ class Transform(abc.ABC):
 
     @abc.abstractmethod
     def __call__(self, image):
+        """
+        Apply the transform to an image-like value.
+        """
         pass

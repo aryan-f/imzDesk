@@ -1,5 +1,3 @@
-from collections.abc import Callable, Sequence
-
 import numpy as np
 
 from imzdesk.transforms._random import WorkerRandomMixin
@@ -7,9 +5,19 @@ from imzdesk.transforms.base import Transform
 
 
 class RandomApply(Transform, WorkerRandomMixin):
-    """Apply a transform sequence with a sample-level probability."""
+    def __init__(self, transforms, p=0.5, seed=None):
+        """
+        Initialize probabilistic application of a transform sequence.
 
-    def __init__(self, transforms: Sequence[Callable], p: float = 0.5, seed: int | None = None):
+        Parameters
+        ----------
+        transforms : sequence of callable
+            Transforms applied in order when the sample is selected.
+        p : float, default=0.5
+            Probability of applying the sequence.
+        seed : int, optional
+            Base random seed.
+        """
         if not 0 <= p <= 1:
             raise ValueError('Probability must be between zero and one.')
         self.transforms = list(transforms)
@@ -17,6 +25,9 @@ class RandomApply(Transform, WorkerRandomMixin):
         self._init_random(seed)
 
     def __call__(self, image):
+        """
+        Apply the transform sequence to a randomly selected sample.
+        """
         if self._rng().random() >= self.p:
             return image
         for transform in self.transforms:
@@ -25,14 +36,25 @@ class RandomApply(Transform, WorkerRandomMixin):
 
 
 class RandomChoice(Transform, WorkerRandomMixin):
-    """Apply one transform selected at sample level."""
-
     def __init__(
         self,
-        transforms: Sequence[Callable],
-        probabilities: Sequence[float] | None = None,
-        seed: int | None = None,
+        transforms,
+        probabilities=None,
+        seed=None,
     ):
+        """
+        Initialize random selection from a transform sequence.
+
+        Parameters
+        ----------
+        transforms : sequence of callable
+            Candidate transforms.
+        probabilities : sequence of float, optional
+            Selection probability for each transform. The uniform
+            distribution is used when omitted.
+        seed : int, optional
+            Base random seed.
+        """
         self.transforms = list(transforms)
         if not self.transforms:
             raise ValueError('RandomChoice requires at least one transform.')
@@ -48,5 +70,8 @@ class RandomChoice(Transform, WorkerRandomMixin):
         self._init_random(seed)
 
     def __call__(self, image):
+        """
+        Apply one randomly selected transform to a sample.
+        """
         index = self._rng().choice(len(self.transforms), p=self.probabilities)
         return self.transforms[index](image)

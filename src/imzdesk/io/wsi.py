@@ -10,6 +10,10 @@ from ..core import metadata
 
 
 class WSIMetadata(metadata.Metadata):
+    """
+    Whole-slide image metadata and Deep Zoom settings.
+    """
+
     vendor: str | None = None
     crop: metadata.BoundingBox | None = None
     tile_size: int = metadata.Field(default=254, ge=1)
@@ -23,13 +27,13 @@ class WSI(ImageBase):
 
     def __init__(self, filepath):
         """
-        Whole Slide Image.
+        Initialize a whole-slide image reader.
 
         The class is a wrapper on ``openslide.OpenSlide`` that provides some extra functionalities.
 
         Parameters
         ----------
-        filepath: Path or str
+        filepath : pathlib.Path or str
             The path to a pathology image file supported by **OpenSlide**.
         """
         super().__init__(filepath)
@@ -37,6 +41,9 @@ class WSI(ImageBase):
 
     @classmethod
     def init_metadata(cls, filepath):
+        """
+        Extract image dimensions and resolution from an OpenSlide file.
+        """
         with openslide.OpenSlide(filepath) as slide:
             width, height = slide.dimensions
             return WSIMetadata(
@@ -51,13 +58,22 @@ class WSI(ImageBase):
             )
 
     def __enter__(self):
+        """
+        Return this WSI from a context manager.
+        """
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Leave the WSI context without suppressing exceptions.
+        """
         pass
 
     @functools.cached_property
     def deepzoom(self):
+        """
+        Return a lazily initialized Deep Zoom tile generator.
+        """
         return openslide.deepzoom.DeepZoomGenerator(
             self.slide,
             tile_size=self.metadata.tile_size,
@@ -65,11 +81,44 @@ class WSI(ImageBase):
             limit_bounds=False,  # keeps the pyramid anchored to full level 0 dims, so world coordinates never shift.
         )
 
-    def get_tile(self, level: int, row: int, column: int) -> Image.Image:
+    def get_tile(self, level, row, column):
+        """
+        Read one tile from the Deep Zoom pyramid.
+
+        Parameters
+        ----------
+        level : int
+            Deep Zoom pyramid level.
+        row : int
+            Tile row.
+        column : int
+            Tile column.
+
+        Returns
+        -------
+        PIL.Image.Image
+            Requested RGB tile.
+        """
         return self.deepzoom.get_tile(level, (column, row))
 
-    def read_region(self, location, shape, target_mpp: float | tuple[float, float] | None = None) -> np.ndarray:
-        """Read a level-0 WSI region into an exact output pixel shape."""
+    def read_region(self, location, shape, target_mpp=None):
+        """
+        Read a level-0 WSI region into an exact output pixel shape.
+
+        Parameters
+        ----------
+        location : tuple of int
+            Level-0 ``(x, y)`` origin of the region.
+        shape : tuple of int
+            Requested output ``(height, width)``.
+        target_mpp : float or tuple of float, optional
+            Output microns per pixel. A scalar applies to both axes.
+
+        Returns
+        -------
+        numpy.ndarray
+            RGB region with the requested shape.
+        """
         output_height, output_width = shape
         native_mpp = np.array([self.metadata.mpp.x, self.metadata.mpp.y], dtype=np.float64)
         target_mpp = native_mpp if target_mpp is None else np.asarray(
@@ -92,23 +141,23 @@ class WSI(ImageBase):
             image = image.resize((output_width, output_height), Image.Resampling.LANCZOS)
         return np.asarray(image)
 
-    def to_image(self, target_mpp: float | tuple[float, float] | None = None, shape=None, crop: bool = True) -> np.ndarray:
+    def to_image(self, target_mpp=None, shape=None, crop=True):
         """
-        Read the whole slide as a numpy image near a target resolution.
+        Read the whole slide as a NumPy image near a target resolution.
 
         Parameters
         ----------
-        target_mpp:
+        target_mpp : float or tuple of float, optional
             Target microns per pixel. A scalar applies to both axes. If
             omitted, the native WSI resolution is used.
-        shape:
+        shape : tuple of int, optional
             Accepted for API symmetry with dense image containers.
-        crop:
+        crop : bool, default=True
             Whether to restrict the read to ``metadata.crop`` when available.
 
         Returns
         -------
-        image: np.ndarray
+        image : numpy.ndarray
             RGB image with shape ``(height, width, 3)``.
         """
         native_mpp = np.array([self.metadata.mpp.x, self.metadata.mpp.y], dtype=np.float64)

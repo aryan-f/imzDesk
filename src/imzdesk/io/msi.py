@@ -16,6 +16,10 @@ warnings.filterwarnings('ignore', message='Accession .* found with incorrect nam
 
 
 class MSIMetadata(metadata.Metadata):
+    """
+    Mass spectrometry image metadata.
+    """
+
     pass
 
 
@@ -25,7 +29,7 @@ class MSI(ImageBase):
 
     def __init__(self, filepath, ibd_path=None, cache_portable=True):
         """
-        Mass Spectrometry Image.
+        Initialize a mass spectrometry image reader.
 
         The class is a wrapper on the ``pyimzml`` library and its components that avoids parsing the XML file on every
         access in order to speed up processing. Contained metadata (accessions) are currently discarded in the process.
@@ -34,11 +38,11 @@ class MSI(ImageBase):
 
         Parameters
         ----------
-        filepath: Path or str
+        filepath : pathlib.Path or str
             The path to the `.imzML` file.
-        ibd_path: Path or str
+        ibd_path : pathlib.Path or str, optional
             The path to the `.ibd` file. If not specified, it will be inferred from the ``imzml_path``.
-        cache_portable: bool
+        cache_portable : bool, default=True
             Whether to cache the minimal set of data required for reading, avoiding XML parsing on the next access.
         """
         super().__init__(filepath)
@@ -57,7 +61,20 @@ class MSI(ImageBase):
         self.ibd_file = None  # Lazy
 
     @classmethod
-    def init_metadata(cls, filepath: Path):
+    def init_metadata(cls, filepath):
+        """
+        Extract image dimensions and spatial resolution from imzML metadata.
+
+        Parameters
+        ----------
+        filepath : pathlib.Path
+            imzML file path.
+
+        Returns
+        -------
+        MSIMetadata
+            Extracted image metadata.
+        """
         # Even though ``ImzMLParser.imzmldict`` contains these properties, the library discards the units which could
         # cause serious problems. We'll have to parse it again to extract the relevant accessions.
         (width, none), (height, none), (x, xu), (y, yu) = get_cvparams_by_accession(
@@ -77,6 +94,9 @@ class MSI(ImageBase):
         )
 
     def from_cache(self):
+        """
+        Construct a portable spectrum reader from the HDF5 cache.
+        """
         with h5py.File(self.cache_path, 'r') as f:
             return PortableSpectrumReader(
                 coordinates=f['coordinates'][:],
@@ -89,6 +109,9 @@ class MSI(ImageBase):
             )
 
     def cache(self):
+        """
+        Persist the portable spectrum reader fields to HDF5.
+        """
         os.makedirs(self.cache_path.parent, exist_ok=True)
         with h5py.File(self.cache_path, 'w') as f:
             f.create_dataset('coordinates', data=np.asarray(self.reader.coordinates))
@@ -100,26 +123,38 @@ class MSI(ImageBase):
             f.create_dataset('intensityLengths', data=np.asarray(self.reader.intensityLengths))
 
     def __enter__(self):
+        """
+        Open the binary spectrum file for indexed reads.
+        """
         self.ibd_file = open(self.ibd_path, 'rb')
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Close the binary spectrum file.
+        """
         self.ibd_file.close()
 
     def __len__(self):
+        """
+        Return the number of measured spectra.
+        """
         return len(self.reader.coordinates)
 
     @cached_property
     def coordinates(self):
+        """
+        Return the measured imzML coordinates as an array.
+        """
         return np.asarray(self.reader.coordinates)
 
     def __getitem__(self, index):
         """
-        Reads the spectrum at specified index from the ``.ibd`` file.
+        Read the spectrum at a specified index from the ``.ibd`` file.
 
         Parameters
         ----------
-        index: int
+        index : int
             Target spectrum.
 
         Raises
@@ -129,9 +164,9 @@ class MSI(ImageBase):
 
         Returns
         -------
-        mz: np.ndarray
+        mz : numpy.ndarray
             m/z ratios.
-        vals: np.ndarray
+        vals : numpy.ndarray
             Intensities.
         """
         assert self.ibd_file is not None, 'Open the file first.'
@@ -139,11 +174,11 @@ class MSI(ImageBase):
 
     def at(self, x, y):
         """
-        Reads the spectrum at the specified coordinates from the ``.ibd`` file.
+        Read the spectrum at specified coordinates from the ``.ibd`` file.
 
         Parameters
         ----------
-        x, y: int
+        x, y : int
             Coordinates.
 
         Raises
@@ -155,9 +190,9 @@ class MSI(ImageBase):
 
         Returns
         -------
-        mz: np.ndarray
+        mz : numpy.ndarray
             m/z ratios.
-        vals: np.ndarray
+        vals : numpy.ndarray
             Intensities.
         """
         matches, = np.where((self.coordinates[:, 0] == x) & (self.coordinates[:, 1] == y))
@@ -175,16 +210,16 @@ def get_cvparams_by_accession(imzml_path, *accessions):
 
     Parameters
     ----------
-    imzml_path: Path
+    imzml_path : pathlib.Path
         The path to the ``.imzML`` file.
-    *accessions: str
+    *accessions : str
         Target accessions to extract.
 
     Yields
     ------
-    value: str
+    value : str
         The ``value`` attribute.
-    unit: str or None
+    unit : str or None
         The ``unitName`` attribute, if available.
     """
     parser = etree.XMLParser(recover=True, huge_tree=True, remove_blank_text=True,)
@@ -202,20 +237,20 @@ def get_cvparams_by_accession(imzml_path, *accessions):
         yield match.attrib['value'], match.attrib.get('unitAccession')
 
 
-def as_microns(value: str, unit: str):
+def as_microns(value, unit):
     """
-    Converts given ``value`` of specified ``unit`` to microns.
+    Convert a value from the specified unit to microns.
 
     Parameters
     ----------
-    value: str
+    value : str
         Floating-point value.
-    unit: str
+    unit : str
         Units Ontology accession.
 
     Returns
     -------
-    value: float
+    value : float
         In microns.
     """
     multiplier = {

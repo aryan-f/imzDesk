@@ -2,14 +2,27 @@ import numpy as np
 
 
 class WorkerRandomMixin:
-    """Worker-aware NumPy random generator for stochastic transforms."""
+    """
+    Worker-aware NumPy random generator for stochastic transforms.
+    """
 
-    def _init_random(self, seed: int | None):
+    def _init_random(self, seed):
+        """
+        Initialize worker-local random state.
+
+        Parameters
+        ----------
+        seed : int, optional
+            Base random seed.
+        """
         self.seed = seed
         self._generator = None
         self._worker_id = None
 
     def _rng(self):
+        """
+        Return the random generator for the current data-loader worker.
+        """
         try:
             from torch.utils.data import get_worker_info
             worker = get_worker_info()

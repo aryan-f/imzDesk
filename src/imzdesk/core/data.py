@@ -1,10 +1,9 @@
 from typing import Any, Generic, NamedTuple, TypeVar
 
 import numpy as np
-from scipy import ndimage, sparse
+from scipy import ndimage
 
 from .geometry import Geometry, Transform
-
 
 W = TypeVar('W')
 M = TypeVar('M')
@@ -12,7 +11,9 @@ T = TypeVar('T')
 
 
 class PairedImage(NamedTuple, Generic[W, M]):
-    """A WSI-MSI pair and the transform mapping MSI pixels to WSI pixels."""
+    """
+    A WSI-MSI pair and the transform mapping MSI pixels to WSI pixels.
+    """
 
     wsi: W
     msi: M
@@ -20,7 +21,9 @@ class PairedImage(NamedTuple, Generic[W, M]):
 
 
 class SpatialImage(NamedTuple, Generic[T]):
-    """Image data with its current pixel grid mapped into a reference frame."""
+    """
+    Image data with its current pixel grid mapped into a reference frame.
+    """
 
     data: T
     geometry: Geometry
@@ -28,7 +31,9 @@ class SpatialImage(NamedTuple, Generic[T]):
 
 
 class RaggedTensor(NamedTuple):
-    """Tensor representation of a ragged image."""
+    """
+    Tensor representation of a ragged image.
+    """
 
     coordinates: Any
     positions: Any
@@ -48,30 +53,15 @@ class RImage:
 
         Parameters
         ----------
-        coordinates: np.ndarray
+        coordinates : numpy.ndarray
             Pixel coordinates. Shape is ``(n_pixels, 2)``.
-        positions: np.ndarray
+        positions : numpy.ndarray
             Concatenated feature/channel positions. Shape is ``(n_values,)``.
-        values: np.ndarray
+        values : numpy.ndarray
             Concatenated sparse values. Shape is ``(n_values,)``.
-        offsets: np.ndarray
+        offsets : numpy.ndarray
             Segment boundaries into ``positions`` and ``values``. Shape is
             ``(n_pixels + 1,)``.
-
-        Attributes
-        ----------
-        coordinates: np.ndarray
-            Spatial ``x``/``y`` pixel coordinates with shape ``(n_pixels, 2)``.
-        positions: np.ndarray
-            Concatenated feature/channel positions with shape ``(n_values,)``.
-            For MSI this is m/z.
-        values: np.ndarray
-            Concatenated sparse values with shape ``(n_values,)``. Entry ``j``
-            is aligned with ``positions[j]``.
-        offsets: np.ndarray
-            Segment boundaries with shape ``(n_pixels + 1,)``. Pixel ``i``
-            occupies ``positions[offsets[i]:offsets[i + 1]]`` and
-            ``values[offsets[i]:offsets[i + 1]]``.
         """
         self.coordinates = np.asarray(coordinates)
         self.positions = np.asarray(positions)
@@ -79,23 +69,26 @@ class RImage:
         self.offsets = np.asarray(offsets)
 
     def __len__(self):
+        """
+        Return the number of pixels in the ragged image.
+        """
         n_pixels, n_dims = self.coordinates.shape
         return n_pixels
 
-    def pixel(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+    def pixel(self, index):
         """
         Return one pixel's ragged feature positions and values.
 
         Parameters
         ----------
-        index: int
+        index : int
             Pixel row index.
 
         Returns
         -------
-        positions: np.ndarray
+        positions : numpy.ndarray
             Feature/channel positions for the selected pixel.
-        values: np.ndarray
+        values : numpy.ndarray
             Values aligned with ``positions`` for the selected pixel.
         """
         start = self.offsets[index]
@@ -114,25 +107,20 @@ class SImage:
 
         Parameters
         ----------
-        values: sparse.spmatrix
+        values : scipy.sparse.spmatrix
             Sparse matrix with shape ``(n_pixels, n_features)``.
-        coordinates: np.ndarray
+        coordinates : numpy.ndarray
             Pixel coordinates matching rows of ``values``. Shape is
             ``(n_pixels, 2)``.
 
-        Attributes
-        ----------
-        values: sparse.spmatrix
-            Sparse matrix with shape ``(n_pixels, n_features)``. Row ``i`` is
-            the fixed-length feature vector for pixel ``i``.
-        coordinates: np.ndarray
-            Spatial ``x``/``y`` pixel coordinates with shape ``(n_pixels, 2)``.
-            Row ``i`` describes the same pixel as row ``i`` of ``values``.
         """
         self.values = values
         self.coordinates = np.asarray(coordinates)
 
     def __len__(self):
+        """
+        Return the number of pixels in the sparse image.
+        """
         n_pixels, n_dims = self.coordinates.shape
         return n_pixels
 
@@ -149,52 +137,43 @@ class DImage:
 
         Parameters
         ----------
-        values: np.ndarray
+        values : numpy.ndarray
             Dense values. Shape is ``(n_pixels,)`` or
             ``(n_pixels, n_features)``.
-        coordinates: np.ndarray
+        coordinates : numpy.ndarray
             Pixel coordinates matching rows of ``values``. Shape is
             ``(n_pixels, 2)``.
 
-        Attributes
-        ----------
-        values: np.ndarray
-            Dense values with shape ``(n_pixels,)`` for scalar images or
-            ``(n_pixels, n_features)`` for multichannel images. Row ``i`` is
-            the dense feature vector for pixel ``i``.
-        coordinates: np.ndarray
-            Spatial ``x``/``y`` pixel coordinates with shape ``(n_pixels, 2)``.
-            Row ``i`` describes the same pixel as row ``i`` of ``values``.
         """
         self.values = np.asarray(values)
         self.coordinates = np.asarray(coordinates)
 
     def to_image(
         self,
-        target_mpp: float | tuple[float, float] | None = None,
-        shape: tuple[int, int] | None = None,
-        crop: bool = True,
-        interpolation: str | None = None,
+        target_mpp=None,
+        shape=None,
+        crop=True,
+        interpolation=None,
     ):
         """
-        Rasterize dense pixel values into a numpy image.
+        Rasterize dense pixel values into a NumPy image.
 
         Parameters
         ----------
-        target_mpp:
+        target_mpp : float or tuple of float, optional
             Accepted for API symmetry with image file classes.
-        shape:
+        shape : tuple of int, optional
             Optional ``(height, width)`` output shape.
-        crop:
+        crop : bool, default=True
             Accepted for API symmetry with image file classes.
-        interpolation:
+        interpolation : {None, 'nearest'}, optional
             Optional raster interpolation. ``'nearest'`` fills every output
             pixel from the nearest measured coordinate. By default, locations
             without a measurement remain zero.
 
         Returns
         -------
-        image: np.ndarray
+        image : numpy.ndarray
             Rasterized image with shape ``(height, width)`` or
             ``(height, width, channels)``.
         """

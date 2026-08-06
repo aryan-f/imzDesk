@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Callable
-
 import numpy as np
 from scipy import ndimage, sparse
 
@@ -19,14 +15,40 @@ from imzdesk.io import MSI, WSI
 from imzdesk.transforms.base import Transform as ImageTransform
 
 
-def _mpp(image: WSI | MSI) -> tuple[float, float]:
+def _mpp(image):
+    """
+    Return an image's axis-wise spatial resolution.
+
+    Parameters
+    ----------
+    image : WSI or MSI
+        Image with spatial metadata.
+
+    Returns
+    -------
+    tuple of float
+        Horizontal and vertical microns per pixel.
+    """
     metadata = image.metadata
     if metadata.mpp is None:
         raise ValueError(f'{type(image).__name__} metadata has no spatial resolution.')
     return metadata.mpp.x, metadata.mpp.y
 
 
-def _shape(image) -> tuple[int, int]:
+def _shape(image):
+    """
+    Return the spatial height and width of an image-like value.
+
+    Parameters
+    ----------
+    image : image-like
+        Image whose spatial extent is required.
+
+    Returns
+    -------
+    tuple of int
+        Spatial ``(height, width)``.
+    """
     if isinstance(image, MSI):
         coordinates = np.asarray(image.coordinates)
         if coordinates.ndim == 2 and len(coordinates) and coordinates.shape[1] >= 2:
@@ -46,7 +68,22 @@ def _shape(image) -> tuple[int, int]:
     raise TypeError(f'Cannot determine spatial shape for {type(image).__name__}.')
 
 
-def _native_spatial(image, pixel_to_reference: Transform | None = None) -> SpatialImage:
+def _native_spatial(image, pixel_to_reference=None):
+    """
+    Wrap an image in its native spatial frame.
+
+    Parameters
+    ----------
+    image : image-like
+        Source image.
+    pixel_to_reference : Transform, optional
+        Explicit pixel-to-reference mapping.
+
+    Returns
+    -------
+    SpatialImage
+        Image with geometry and reference-frame mapping.
+    """
     x_mpp, y_mpp = _mpp(image) if isinstance(image, (WSI, MSI)) else (1.0, 1.0)
     height, width = _shape(image)
     geometry = Geometry(width=width, height=height, mpp=(x_mpp, y_mpp))
@@ -57,7 +94,24 @@ def _native_spatial(image, pixel_to_reference: Transform | None = None) -> Spati
     )
 
 
-def _replace_spatial_data(image: SpatialImage, data, source=None) -> SpatialImage:
+def _replace_spatial_data(image, data, source=None):
+    """
+    Replace spatial image data while reconciling changed dimensions.
+
+    Parameters
+    ----------
+    image : SpatialImage
+        Existing spatial wrapper.
+    data : image-like
+        Replacement data.
+    source : image-like, optional
+        Original untransformed data.
+
+    Returns
+    -------
+    SpatialImage
+        Replacement data with updated geometry when required.
+    """
     try:
         height, width = _shape(data)
     except (TypeError, ValueError):
@@ -88,7 +142,22 @@ def _replace_spatial_data(image: SpatialImage, data, source=None) -> SpatialImag
     )
 
 
-def _apply_spatial(transform: Callable | None, image: SpatialImage) -> SpatialImage:
+def _apply_spatial(transform, image):
+    """
+    Apply a transform while retaining or updating spatial metadata.
+
+    Parameters
+    ----------
+    transform : callable, optional
+        Transform to apply.
+    image : SpatialImage
+        Spatial image to transform.
+
+    Returns
+    -------
+    SpatialImage
+        Transformed image in a known reference frame.
+    """
     if transform is None:
         return image
     transforms = getattr(transform, 'transforms', None)
@@ -128,18 +197,40 @@ def _apply_spatial(transform: Callable | None, image: SpatialImage) -> SpatialIm
 
 
 class Parallel(ImageTransform):
-    """Apply independent WSI and MSI pipelines while retaining spatial frames.
+    def __init__(self, wsi=None, msi=None):
+        """
+        Initialize independent WSI and MSI pipelines.
 
-    Transforms returning raw image data must preserve the full spatial field,
-    apart from a full-frame resize. A transform that crops, rotates, translates,
-    or flips an image must return a ``SpatialImage`` describing its new frame.
-    """
+        Parameters
+        ----------
+        wsi : callable, optional
+            Transform pipeline applied to the WSI.
+        msi : callable, optional
+            Transform pipeline applied to the MSI.
 
-    def __init__(self, wsi: Callable | None = None, msi: Callable | None = None):
+        Notes
+        -----
+        Transforms returning raw data must preserve the full spatial field,
+        apart from a full-frame resize. Spatial transformations must return a
+        ``SpatialImage`` describing the new frame.
+        """
         self.wsi = wsi
         self.msi = msi
 
-    def __call__(self, image: PairedImage) -> PairedImage:
+    def __call__(self, image):
+        """
+        Apply independent pipelines while retaining pair registration.
+
+        Parameters
+        ----------
+        image : PairedImage
+            WSI-MSI pair to transform.
+
+        Returns
+        -------
+        PairedImage
+            Independently transformed pair.
+        """
         if not isinstance(image, PairedImage):
             raise TypeError('Parallel expects a PairedImage.')
 
@@ -162,14 +253,24 @@ class Parallel(ImageTransform):
 
 
 class RandomCrop(ImageTransform):
-    """Randomly crop one image or a registered pair in a shared reference frame."""
-
     def __init__(
         self,
-        size: int | tuple[int, int],
-        mpp: float | tuple[float, float] | None = None,
-        seed: int | None = None,
+        size,
+        mpp=None,
+        seed=None,
     ):
+        """
+        Initialize random spatial cropping.
+
+        Parameters
+        ----------
+        size : int or tuple of int
+            Output ``(height, width)`` in pixels.
+        mpp : float or tuple of float, optional
+            Output microns per pixel.
+        seed : int, optional
+            Base random seed.
+        """
         self.size = (size, size) if isinstance(size, int) else size
         if len(self.size) != 2 or any(dimension <= 0 for dimension in self.size):
             raise ValueError('Crop size must contain two positive dimensions.')
@@ -181,6 +282,9 @@ class RandomCrop(ImageTransform):
         self._worker_id = None
 
     def __call__(self, image):
+        """
+        Randomly crop one image or a registered pair in a shared frame.
+        """
         if isinstance(image, PairedImage):
             return self._crop_pair(image)
 
@@ -190,7 +294,20 @@ class RandomCrop(ImageTransform):
         result = self._crop_spatial(spatial, origin, mpp)
         return result if isinstance(image, SpatialImage) else result.data
 
-    def _crop_pair(self, image: PairedImage) -> PairedImage:
+    def _crop_pair(self, image):
+        """
+        Crop both members of a registered pair to one physical field.
+
+        Parameters
+        ----------
+        image : PairedImage
+            Registered image pair.
+
+        Returns
+        -------
+        PairedImage
+            Pair cropped into a shared identity-aligned frame.
+        """
         if image.registration is None:
             raise ValueError('A registered pair is required for a shared random crop.')
 
@@ -213,6 +330,9 @@ class RandomCrop(ImageTransform):
         )
 
     def _sample_origin(self, images, mpp):
+        """
+        Sample a crop origin from the shared feasible polygon.
+        """
         crop_extent = np.array([self.size[1], self.size[0]], dtype=np.float64) * mpp
         bounds = [self._bounds(image) for image in images]
         lower = np.max([item[0] for item in bounds], axis=0)
@@ -235,6 +355,9 @@ class RandomCrop(ImageTransform):
 
     @staticmethod
     def _clip_to_image(polygon, image, crop_extent):
+        """
+        Clip feasible crop origins to one image's transformed extent.
+        """
         inverse = image.pixel_to_reference.inverse().matrix
         if not np.allclose(inverse[2], [0, 0, 1]):
             raise ValueError('RandomCrop requires affine spatial transforms.')
@@ -258,6 +381,9 @@ class RandomCrop(ImageTransform):
 
     @staticmethod
     def _clip_half_plane(polygon, normal, limit):
+        """
+        Clip a polygon against one closed half-plane.
+        """
         if not len(polygon):
             return polygon
         clipped = []
@@ -278,6 +404,9 @@ class RandomCrop(ImageTransform):
         return np.asarray(clipped, dtype=np.float64).reshape(-1, 2)
 
     def _sample_polygon(self, polygon):
+        """
+        Sample a point uniformly from a feasible polygon.
+        """
         polygon = self._unique_vertices(polygon)
         if len(polygon) == 1:
             return polygon[0].copy()
@@ -308,6 +437,9 @@ class RandomCrop(ImageTransform):
 
     @staticmethod
     def _unique_vertices(polygon):
+        """
+        Remove numerically duplicate polygon vertices.
+        """
         unique = []
         for vertex in polygon:
             if not any(np.allclose(vertex, existing, rtol=0, atol=1e-9) for existing in unique):
@@ -316,6 +448,9 @@ class RandomCrop(ImageTransform):
 
     @staticmethod
     def _raise_crop_error(crop_extent, lower, upper):
+        """
+        Raise an informative error for a crop larger than the overlap.
+        """
         overlap = np.maximum(upper - lower, 0)
         raise ValueError(
             'Crop does not fit within the available spatial overlap: '
@@ -324,6 +459,9 @@ class RandomCrop(ImageTransform):
         )
 
     def _rng(self):
+        """
+        Return the random generator for the current data-loader worker.
+        """
         try:
             from torch.utils.data import get_worker_info
             worker = get_worker_info()
@@ -339,13 +477,43 @@ class RandomCrop(ImageTransform):
         return self._generator
 
     @staticmethod
-    def _bounds(image: SpatialImage):
+    def _bounds(image):
+        """
+        Return axis-aligned reference-frame bounds for a spatial image.
+
+        Parameters
+        ----------
+        image : SpatialImage
+            Spatial image to bound.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            Lower and upper reference-frame bounds.
+        """
         width, height = image.geometry.width, image.geometry.height
         corners = np.array([[0, 0], [width, 0], [0, height], [width, height]], dtype=np.float64)
         transformed = image.pixel_to_reference.apply(corners)
         return transformed.min(axis=0), transformed.max(axis=0)
 
-    def _crop_spatial(self, image: SpatialImage, origin, mpp) -> SpatialImage:
+    def _crop_spatial(self, image, origin, mpp):
+        """
+        Crop one spatial image at a physical origin and resolution.
+
+        Parameters
+        ----------
+        image : SpatialImage
+            Spatial image to crop.
+        origin : array-like
+            Crop origin in reference coordinates.
+        mpp : array-like
+            Output microns per pixel.
+
+        Returns
+        -------
+        SpatialImage
+            Cropped image and spatial frame.
+        """
         data = image.data
         if isinstance(data, WSI) and np.allclose(image.pixel_to_reference.matrix[:2, :2], np.diag(_mpp(data))):
             source_origin = image.pixel_to_reference.inverse().apply([origin])[0]
@@ -370,6 +538,9 @@ class RandomCrop(ImageTransform):
         return SpatialImage(cropped, geometry, pixel_to_reference)
 
     def _crop_array(self, image, spatial, origin, mpp):
+        """
+        Sample an array into the configured crop grid.
+        """
         y, x = np.indices(self.size, dtype=np.float64)
         reference = np.column_stack([
             origin[0] + x.ravel() * mpp[0],
@@ -386,6 +557,9 @@ class RandomCrop(ImageTransform):
         return np.stack(channels, axis=-1)
 
     def _crop_points(self, image, spatial, origin, mpp):
+        """
+        Subset point-based image data into the configured crop grid.
+        """
         reference = spatial.pixel_to_reference.apply(image.coordinates)
         coordinates = (reference - origin) / mpp
         rounded = np.rint(coordinates).astype(np.int64)
@@ -418,13 +592,24 @@ class RandomCrop(ImageTransform):
 
 
 class ToTensor(ImageTransform):
-    """Convert supported image values and paired samples to PyTorch tensors."""
+    def __init__(self, channel_first=True, dtype=None):
+        """
+        Initialize conversion to PyTorch tensors.
 
-    def __init__(self, channel_first: bool = True, dtype=None):
+        Parameters
+        ----------
+        channel_first : bool, default=True
+            Move array channels before spatial dimensions.
+        dtype : torch.dtype, optional
+            Requested tensor data type.
+        """
         self.channel_first = channel_first
         self.dtype = dtype
 
     def __call__(self, image):
+        """
+        Convert a supported image value or pair to PyTorch tensors.
+        """
         try:
             import torch
         except ImportError as exception:

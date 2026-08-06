@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_model
 
-from imzdesk.core import RImage, DImage
+from imzdesk.core import DImage
 from imzdesk.transforms.models import Model
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,19 @@ class DreaMS(Model):
     downloadable = 'embedding_model.safetensors'
 
     def __init__(self, device=None):
+        """
+        Initialize DreaMS and load pretrained embedding weights.
+
+        Parameters
+        ----------
+        device : str or torch.device, optional
+            Inference device. CUDA is preferred when available.
+
+        Attributes
+        ----------
+        network : DreaMSNet
+            Pretrained network in evaluation mode.
+        """
         self.device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
         device = self.device.type if self.device.index is None else f'{self.device.type}:{self.device.index}'
         network = DreaMSNet()
@@ -31,7 +44,22 @@ class DreaMS(Model):
         load_model(network, filepath, device=device, strict=True)
         self.network = network.eval()
 
-    def embed(self, image: RImage, batch_size: int = 128) -> DImage:
+    def embed(self, image, batch_size=128):
+        """
+        Embed all spectra in a ragged image.
+
+        Parameters
+        ----------
+        image : imzdesk.core.RImage
+            Ragged spectra to embed.
+        batch_size : int, default=128
+            Number of spectra processed per inference batch.
+
+        Returns
+        -------
+        DImage
+            Dense embeddings and source coordinates.
+        """
         embeddings = []
         with torch.inference_mode():
             for start in range(0, len(image), batch_size):
@@ -44,6 +72,9 @@ class DreaMS(Model):
         return DImage(embeddings, image.coordinates)
 
     def preprocess(self, spectrum):
+        """
+        Convert one spectrum into the fixed-size DreaMS input format.
+        """
         positions, values = spectrum
         spectrum = torch.zeros((self.network.top_n, 2), dtype=torch.float32, device=self.device)
         positions = torch.as_tensor(positions, dtype=torch.float32, device=self.device)
@@ -62,6 +93,9 @@ class DreaMS(Model):
 class DreaMSNet(nn.Module):
 
     def __init__(self, fourier_strategy='lin_float_int', fourier_num_freqs=None, fourier_trainable=False, max_tbxic_stdev=0.0001, max_mz=1000, d_fourier=980, dropout=0.1, no_ffs_bias=False, ff_fourier_depth=5, ff_fourier_d=512, d_peak=44, ff_peak_depth=1, d_model=1024, ff_out_depth=1, hot_mz_bin_size=0.05, focal_loss_gamma=5.0, n_layers=7, pre_norm=True, scnorm=False, n_heads=8, att_dropout=0.1, no_transformer_bias=True, attn_mech='dot-product', d_graphormer_params=0, ff_dropout=0.1, residual_dropout=0.1, top_n=100):
+        """
+        Initialize the DreaMS spectrum encoder network.
+        """
         super().__init__()
         self.max_mz = max_mz
         self.d_model = d_model
@@ -94,6 +128,9 @@ class DreaMSNet(nn.Module):
         self.ro_out = nn.Linear(2 * self.d_model, 1, bias=False)
 
     def forward(self, spec):
+        """
+        Encode a batch of padded peak sequences.
+        """
         # Generate padding mask
         padding_mask = spec[:, :, 0] == 0
 
@@ -113,13 +150,28 @@ class DreaMSNet(nn.Module):
 
     def __normalize_spec(self, spec):
         """
-        Normalizes raw m/z values. Notice, that it is not in dataset `__getitem__ `because raw m/z values are still needed
-        for Fourier features. Intensities are supposed to be normalized in `__getitem__`.
+        Normalize m/z values while preserving precomputed intensities.
         """
         return spec / torch.tensor([self.max_mz, 1.], device=spec.device, dtype=spec.dtype)
 
     @staticmethod
-    def to_classes(vals: torch.Tensor, max_val: float, bin_size: float, special_vals=(), return_num_classes=False):
+    def to_classes(vals, max_val, bin_size, special_vals=(), return_num_classes=False):
+        """
+        Quantize continuous values into fixed-width classes.
+
+        Parameters
+        ----------
+        vals : torch.Tensor
+            Values to quantize.
+        max_val : float
+            Exclusive upper value represented by regular classes.
+        bin_size : float
+            Width of each class bin.
+        special_vals : sequence, optional
+            Values assigned dedicated classes after regular bins.
+        return_num_classes : bool, default=False
+            Whether to return the total class count.
+        """
         special_masks = [vals == v for v in special_vals]
         num_classes = int(max_val / bin_size)
         classes = torch.round(vals / bin_size).long()
@@ -134,6 +186,9 @@ class DreaMSNet(nn.Module):
 class TransformerEncoder(nn.Module):
 
     def __init__(self, n_layers, pre_norm, d_model, scnorm, n_heads, att_dropout, no_transformer_bias, attn_mech, d_graphormer_params, ff_dropout, residual_dropout):
+        """
+        Initialize stacked self-attention encoder blocks.
+        """
         super(TransformerEncoder, self).__init__()
         self.residual_dropout = residual_dropout
         self.n_layers = n_layers
@@ -152,6 +207,9 @@ class TransformerEncoder(nn.Module):
             self.scales = nn.ModuleList([nn.LayerNorm(d_model) for _ in range(num_scales)])
 
     def forward(self, src_inputs, src_mask, graphormer_dists=None):
+        """
+        Encode source tokens with residual attention blocks.
+        """
         pre_norm = self.pre_norm
         post_norm = not pre_norm
 
@@ -181,6 +239,9 @@ class TransformerEncoder(nn.Module):
 class MultiheadAttention(nn.Module):
 
     def __init__(self, d_model, n_heads, att_dropout, no_transformer_bias, attn_mech, d_graphormer_params):
+        """
+        Initialize multi-head attention projections and parameters.
+        """
         super(MultiheadAttention, self).__init__()
         self.d_model = d_model
         self.n_heads = n_heads
@@ -218,9 +279,15 @@ class MultiheadAttention(nn.Module):
             nn.init.normal_(self.additive_v, mean=mean, std=std)
 
     def forward(self, q, k, v, mask, graphormer_dists=None, do_proj_qkv=True):
+        """
+        Calculate masked multi-head attention.
+        """
         bs, n, d = q.size()
 
         def _split_heads(tensor):
+            """
+            Split the model dimension into attention heads.
+            """
             bsz, length, d_model = tensor.size()
             return tensor.reshape(bsz, length, self.n_heads, self.head_dim).transpose(1, 2)
 
@@ -264,6 +331,9 @@ class MultiheadAttention(nn.Module):
         return output, att_weights
 
     def proj_qkv(self, q, k, v):
+        """
+        Project query, key, and value tensors efficiently.
+        """
         qkv_same = q.data_ptr() == k.data_ptr() == v.data_ptr()
         kv_same = k.data_ptr() == v.data_ptr()
 
@@ -280,26 +350,44 @@ class MultiheadAttention(nn.Module):
         return q, k, v
 
     def _proj(self, x, start=0, end=None):
+        """
+        Apply a slice of the packed attention projection.
+        """
         weight = self.weights[start:end, :]
         bias = None if not self.use_transformer_bias else self.biases[start:end]
         return F.linear(x, weight=weight, bias=bias)
 
     def proj_q(self, q):
+        """
+        Project query values.
+        """
         return self._proj(q, end=self.d_model)
 
     def proj_k(self, k):
+        """
+        Project key values.
+        """
         return self._proj(k, start=self.d_model, end=2 * self.d_model)
 
     def proj_v(self, v):
+        """
+        Project value values.
+        """
         return self._proj(v, start=2 * self.d_model, end=3 * self.d_model)
 
     def proj_o(self, x):
+        """
+        Project concatenated attention output.
+        """
         return self._proj(x, start=3 * self.d_model)
 
 
 class FourierFeatures(nn.Module):
 
     def __init__(self, strategy, x_min, x_max, trainable=True, funcs='both', sigma=10, num_freqs=512):
+        """
+        Initialize a Fourier feature basis.
+        """
         assert strategy in {'random', 'voronov_et_al', 'lin_float_int'}
         assert funcs in {'both', 'sin', 'cos'}
         assert x_min < 1
@@ -327,6 +415,9 @@ class FourierFeatures(nn.Module):
         self.register_parameter('Fourier frequencies', self.b)
 
     def forward(self, x):
+        """
+        Expand values into Fourier features.
+        """
         x = 2 * torch.pi * x @ self.b
         if self.funcs == 'both':
             x = torch.cat((torch.cos(x), torch.sin(x)), dim=-1)
@@ -337,12 +428,37 @@ class FourierFeatures(nn.Module):
         return x
 
     def num_features(self):
+        """
+        Return the output feature dimension.
+        """
         return self.b.shape[1] if self.funcs != 'both' else 2 * self.b.shape[1]
 
 
 class FeedForward(nn.Module):
 
-    def __init__(self, in_dim, out_dim, hidden_dim: int, depth=None, act_last=True, act=nn.ReLU, bias=True, dropout=0.0):
+    def __init__(self, in_dim, out_dim, hidden_dim, depth=None, act_last=True, act=nn.ReLU, bias=True, dropout=0.0):
+        """
+        Initialize a configurable multilayer feed-forward network.
+
+        Parameters
+        ----------
+        in_dim : int
+            Input feature dimension.
+        out_dim : int
+            Output feature dimension.
+        hidden_dim : int, sequence of int, or 'interpolated'
+            Hidden-layer dimensions.
+        depth : int, optional
+            Number of linear layers when dimensions are not explicit.
+        act_last : bool, default=True
+            Whether to activate the final layer.
+        act : type, default=torch.nn.ReLU
+            Activation module class.
+        bias : bool, default=True
+            Whether linear layers include bias parameters.
+        dropout : float, default=0.0
+            Hidden-layer dropout probability.
+        """
         super().__init__()
 
         if isinstance(hidden_dim, int):
@@ -368,10 +484,16 @@ class FeedForward(nn.Module):
         self.ff = nn.Sequential(*self.ff)
 
     def forward(self, x):
+        """
+        Apply the feed-forward network.
+        """
         return self.ff(x)
 
     @staticmethod
     def interpolate_interval(a, b, n, only_inter=False, rounded=False):
+        """
+        Interpolate evenly spaced dimensions between two endpoints.
+        """
         x_min, x_max = min(a, b), max(a, b)
         res = [x_min + i * (x_max - x_min) / (n + 1) for i in
                range(1 if only_inter else 0, n + 1 if only_inter else n + 2)]
@@ -385,6 +507,9 @@ class FeedForward(nn.Module):
 class TokenWiseFeedForward(nn.Module):
 
     def __init__(self, ff_dropout, d_model, no_transformer_bias):
+        """
+        Initialize the transformer token-wise feed-forward block.
+        """
         super(TokenWiseFeedForward, self).__init__()
         self.dropout = ff_dropout
         self.d_model = d_model
@@ -404,6 +529,9 @@ class TokenWiseFeedForward(nn.Module):
             nn.init.constant_(self.out_proj.bias, 0.)
 
     def forward(self, x):
+        """
+        Apply the token-wise feed-forward block.
+        """
         # my preliminary experiments show all RELU-variants
         # work the same and slower, RELU FTW!!!
         y = F.relu(self.in_proj(x))
@@ -414,10 +542,16 @@ class TokenWiseFeedForward(nn.Module):
 class ScaleNorm(nn.Module):
 
     def __init__(self, scale, eps=1e-5):
+        """
+        Initialize learned scale normalization.
+        """
         super(ScaleNorm, self).__init__()
         self.scale = torch.nn.Parameter(torch.tensor(scale))
         self.eps = eps
 
     def forward(self, x):
+        """
+        Normalize vectors and apply the learned scale.
+        """
         norm = self.scale / torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
         return x * norm

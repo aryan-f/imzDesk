@@ -1,7 +1,5 @@
 import abc
 
-from imzdesk.core.data import RImage, DImage
-
 
 class Model(abc.ABC):
     """
@@ -9,5 +7,18 @@ class Model(abc.ABC):
     """
 
     @abc.abstractmethod
-    def embed(self, image: RImage) -> DImage:
+    def embed(self, image):
+        """
+        Embed the spectra in a ragged image into dense vectors.
+
+        Parameters
+        ----------
+        image : imzdesk.core.RImage
+            Ragged spectra to embed.
+
+        Returns
+        -------
+        imzdesk.core.DImage
+            Dense embedding vectors and source coordinates.
+        """
         pass

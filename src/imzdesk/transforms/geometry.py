@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Sequence
-
 import numpy as np
 from scipy import ndimage
 
@@ -11,7 +7,6 @@ from imzdesk.transforms._random import WorkerRandomMixin
 from imzdesk.transforms.base import Transform as ImageTransform
 from imzdesk.transforms.spatial import RandomCrop, _mpp, _native_spatial
 
-
 _INTERPOLATION_ORDERS = {
     'nearest': 0,
     'bilinear': 1,
@@ -19,14 +14,40 @@ _INTERPOLATION_ORDERS = {
 }
 
 
-def _size(value: int | Sequence[int]) -> tuple[int, int]:
+def _size(value):
+    """
+    Normalize a scalar or pair into two positive dimensions.
+
+    Parameters
+    ----------
+    value : int or sequence of int
+        Scalar size or ``(height, width)`` pair.
+
+    Returns
+    -------
+    tuple of int
+        Two validated dimensions.
+    """
     size = (value, value) if isinstance(value, int) else tuple(value)
     if len(size) != 2 or any(dimension <= 0 for dimension in size):
         raise ValueError('Size must contain two positive dimensions.')
     return int(size[0]), int(size[1])
 
 
-def _pair_spatials(image: PairedImage) -> tuple[SpatialImage, SpatialImage]:
+def _pair_spatials(image):
+    """
+    Express both members of a registered pair as spatial images.
+
+    Parameters
+    ----------
+    image : PairedImage
+        Registered WSI-MSI pair.
+
+    Returns
+    -------
+    tuple of SpatialImage
+        WSI and MSI in their shared reference frame.
+    """
     wsi = image.wsi if isinstance(image.wsi, SpatialImage) else _native_spatial(image.wsi)
     if isinstance(image.msi, SpatialImage):
         msi = image.msi
@@ -39,14 +60,46 @@ def _pair_spatials(image: PairedImage) -> tuple[SpatialImage, SpatialImage]:
     return wsi, msi
 
 
-def _geometry(frame: Transform, width: int, height: int) -> Geometry:
+def _geometry(frame, width, height):
+    """
+    Derive pixel-grid geometry from a reference-frame transform.
+
+    Parameters
+    ----------
+    frame : Transform
+        Pixel-to-reference transform.
+    width : int
+        Grid width.
+    height : int
+        Grid height.
+
+    Returns
+    -------
+    Geometry
+        Geometry represented by the transform and dimensions.
+    """
     linear = frame.matrix[:2, :2]
     mpp = (np.linalg.norm(linear[:, 0]), np.linalg.norm(linear[:, 1]))
     origin = frame.apply([[0, 0]])[0]
     return Geometry(width=width, height=height, mpp=mpp, origin=origin)
 
 
-def _fill_values(fill, channels: int):
+def _fill_values(fill, channels):
+    """
+    Expand a scalar or validate channel-specific fill values.
+
+    Parameters
+    ----------
+    fill : scalar or sequence
+        Fill value specification.
+    channels : int
+        Number of flattened image channels.
+
+    Returns
+    -------
+    list
+        One fill value per channel.
+    """
     if np.isscalar(fill):
         return [fill] * channels
     values = list(fill)
@@ -55,7 +108,30 @@ def _fill_values(fill, channels: int):
     return values
 
 
-def _warp_array(image, source_from_output: Transform, shape, interpolation, fill, mode):
+def _warp_array(image, source_from_output, shape, interpolation, fill, mode):
+    """
+    Resample an array through an output-to-source transform.
+
+    Parameters
+    ----------
+    image : numpy.ndarray
+        Source image array.
+    source_from_output : Transform
+        Mapping from output pixels to source pixels.
+    shape : tuple of int
+        Output ``(height, width)``.
+    interpolation : str
+        Interpolation mode.
+    fill : scalar or sequence
+        Values used outside the source extent.
+    mode : str
+        SciPy boundary mode.
+
+    Returns
+    -------
+    numpy.ndarray
+        Resampled image array.
+    """
     order = _INTERPOLATION_ORDERS[interpolation]
     output_height, output_width = shape
     y, x = np.indices((output_height, output_width), dtype=np.float64)
@@ -87,7 +163,24 @@ def _warp_array(image, source_from_output: Transform, shape, interpolation, fill
     return np.stack(channels, axis=-1).reshape(*shape, *trailing_shape)
 
 
-def _subset_ragged(image: RImage, indices, coordinates) -> RImage:
+def _subset_ragged(image, indices, coordinates):
+    """
+    Subset a ragged image and replace its spatial coordinates.
+
+    Parameters
+    ----------
+    image : RImage
+        Source ragged image.
+    indices : array-like
+        Pixel indices to retain.
+    coordinates : array-like
+        Replacement coordinates for retained pixels.
+
+    Returns
+    -------
+    RImage
+        Subset ragged image.
+    """
     positions = []
     values = []
     offsets = [0]
@@ -104,7 +197,24 @@ def _subset_ragged(image: RImage, indices, coordinates) -> RImage:
     )
 
 
-def _warp_points(image, output_from_source: Transform, shape):
+def _warp_points(image, output_from_source, shape):
+    """
+    Transform sparse pixel coordinates and discard points outside a grid.
+
+    Parameters
+    ----------
+    image : RImage, SImage, or DImage
+        Point-based image data.
+    output_from_source : Transform
+        Mapping from source pixels to output pixels.
+    shape : tuple of int
+        Output ``(height, width)``.
+
+    Returns
+    -------
+    RImage, SImage, or DImage
+        Reindexed image using the same storage representation.
+    """
     output_height, output_width = shape
     coordinates = np.rint(output_from_source.apply(image.coordinates)).astype(np.int64)
     keep = (
@@ -123,15 +233,42 @@ def _warp_points(image, output_from_source: Transform, shape):
 
 
 def _reindex_spatial(
-    image: SpatialImage,
-    source_from_output: Transform,
-    shape: tuple[int, int],
-    interpolation: str = 'nearest',
+    image,
+    source_from_output,
+    shape,
+    interpolation='nearest',
     fill=0,
-    mode: str = 'constant',
-    frame_from_output: Transform | None = None,
-    point_output_from_source: Transform | None = None,
-) -> SpatialImage:
+    mode='constant',
+    frame_from_output=None,
+    point_output_from_source=None,
+):
+    """
+    Reindex spatial image data and update its reference frame.
+
+    Parameters
+    ----------
+    image : SpatialImage
+        Spatial image to reindex.
+    source_from_output : Transform
+        Mapping used to sample raster data.
+    shape : tuple of int
+        Output ``(height, width)``.
+    interpolation : str, default='nearest'
+        Raster interpolation mode.
+    fill : scalar or sequence, default=0
+        Fill values outside the source extent.
+    mode : str, default='constant'
+        SciPy boundary mode.
+    frame_from_output : Transform, optional
+        Alternate mapping used to update the spatial frame.
+    point_output_from_source : Transform, optional
+        Alternate forward mapping for point-based image data.
+
+    Returns
+    -------
+    SpatialImage
+        Reindexed image and updated geometry.
+    """
     if interpolation not in _INTERPOLATION_ORDERS:
         raise ValueError(f'Unknown interpolation: {interpolation}')
     data = image.data
@@ -163,11 +300,17 @@ def _reindex_spatial(
     return SpatialImage(output, _geometry(frame, width, height), frame)
 
 
-def _restore(original, result: SpatialImage):
+def _restore(original, result):
+    """
+    Restore a transformed value to its original wrapped or bare form.
+    """
     return result if isinstance(original, SpatialImage) else result.data
 
 
 def _apply_local(image, operation):
+    """
+    Apply a local spatial operation to one image or both pair members.
+    """
     if isinstance(image, PairedImage):
         wsi, msi = _pair_spatials(image)
         wsi = operation(wsi)
@@ -181,19 +324,33 @@ def _apply_local(image, operation):
 
 
 class RandomHorizontalFlip(ImageTransform, WorkerRandomMixin):
-    """Flip one image or both members of a pair horizontally."""
+    def __init__(self, p=0.5, seed=None):
+        """
+        Initialize random horizontal flipping.
 
-    def __init__(self, p: float = 0.5, seed: int | None = None):
+        Parameters
+        ----------
+        p : float, default=0.5
+            Probability of flipping a sample.
+        seed : int, optional
+            Base random seed.
+        """
         if not 0 <= p <= 1:
             raise ValueError('Probability must be between zero and one.')
         self.p = p
         self._init_random(seed)
 
     def __call__(self, image):
+        """
+        Randomly flip one image or both members of a pair horizontally.
+        """
         if self._rng().random() >= self.p:
             return image
 
         def flip(spatial):
+            """
+            Flip one spatial image horizontally.
+            """
             width = spatial.geometry.width
             mapping = Transform([[-1, 0, width - 1], [0, 1, 0], [0, 0, 1]])
             return _reindex_spatial(spatial, mapping, (spatial.geometry.height, width))
@@ -202,19 +359,33 @@ class RandomHorizontalFlip(ImageTransform, WorkerRandomMixin):
 
 
 class RandomVerticalFlip(ImageTransform, WorkerRandomMixin):
-    """Flip one image or both members of a pair vertically."""
+    def __init__(self, p=0.5, seed=None):
+        """
+        Initialize random vertical flipping.
 
-    def __init__(self, p: float = 0.5, seed: int | None = None):
+        Parameters
+        ----------
+        p : float, default=0.5
+            Probability of flipping a sample.
+        seed : int, optional
+            Base random seed.
+        """
         if not 0 <= p <= 1:
             raise ValueError('Probability must be between zero and one.')
         self.p = p
         self._init_random(seed)
 
     def __call__(self, image):
+        """
+        Randomly flip one image or both members of a pair vertically.
+        """
         if self._rng().random() >= self.p:
             return image
 
         def flip(spatial):
+            """
+            Flip one spatial image vertically.
+            """
             height = spatial.geometry.height
             mapping = Transform([[1, 0, 0], [0, -1, height - 1], [0, 0, 1]])
             return _reindex_spatial(spatial, mapping, (height, spatial.geometry.width))
@@ -223,9 +394,19 @@ class RandomVerticalFlip(ImageTransform, WorkerRandomMixin):
 
 
 class RandomRotate90(ImageTransform, WorkerRandomMixin):
-    """Rotate by a randomly selected multiple of 90 degrees."""
+    def __init__(self, p=0.5, choices=(1, 2, 3), seed=None):
+        """
+        Initialize random right-angle rotation.
 
-    def __init__(self, p: float = 0.5, choices=(1, 2, 3), seed: int | None = None):
+        Parameters
+        ----------
+        p : float, default=0.5
+            Probability of rotating a sample.
+        choices : sequence of int, default=(1, 2, 3)
+            Candidate numbers of quarter turns.
+        seed : int, optional
+            Base random seed.
+        """
         if not 0 <= p <= 1:
             raise ValueError('Probability must be between zero and one.')
         choices = tuple(int(choice) % 4 for choice in choices)
@@ -236,11 +417,17 @@ class RandomRotate90(ImageTransform, WorkerRandomMixin):
         self._init_random(seed)
 
     def __call__(self, image):
+        """
+        Rotate a sample by a randomly selected multiple of 90 degrees.
+        """
         if self._rng().random() >= self.p:
             return image
         turns = int(self._rng().choice(self.choices))
 
         def rotate(spatial):
+            """
+            Rotate one spatial image by the selected quarter turns.
+            """
             width, height = spatial.geometry.width, spatial.geometry.height
             if turns == 0:
                 return spatial
@@ -259,12 +446,23 @@ class RandomRotate90(ImageTransform, WorkerRandomMixin):
 
 
 class CenterCrop(RandomCrop):
-    """Crop the center of one image or the shared center of a registered pair."""
-
     def __init__(self, size, mpp=None):
+        """
+        Initialize a centered spatial crop.
+
+        Parameters
+        ----------
+        size : int or tuple of int
+            Output ``(height, width)`` in pixels.
+        mpp : float or tuple of float, optional
+            Output microns per pixel.
+        """
         super().__init__(size=size, mpp=mpp)
 
     def _sample_polygon(self, polygon):
+        """
+        Return the centroid of the feasible crop-origin polygon.
+        """
         polygon = self._unique_vertices(polygon)
         if len(polygon) == 1:
             return polygon[0].copy()
@@ -280,9 +478,18 @@ class CenterCrop(RandomCrop):
 
 
 class Pad(ImageTransform):
-    """Pad an in-memory image while retaining its spatial frame."""
+    def __init__(self, padding, fill=0):
+        """
+        Initialize padding for an in-memory image.
 
-    def __init__(self, padding: int | Sequence[int], fill=0):
+        Parameters
+        ----------
+        padding : int or sequence of int
+            Uniform padding, horizontal/vertical padding, or
+            ``(left, top, right, bottom)`` padding.
+        fill : scalar or sequence, default=0
+            Fill value for raster data.
+        """
         if isinstance(padding, int):
             padding = (padding,) * 4
         elif len(padding) == 2:
@@ -295,9 +502,15 @@ class Pad(ImageTransform):
         self.fill = fill
 
     def __call__(self, image):
+        """
+        Pad one image or both members of a pair.
+        """
         left, top, right, bottom = self.padding
 
         def pad(spatial):
+            """
+            Pad one spatial image.
+            """
             shape = (
                 spatial.geometry.height + top + bottom,
                 spatial.geometry.width + left + right,
@@ -309,15 +522,38 @@ class Pad(ImageTransform):
 
 
 class Resize(ImageTransform):
-    """Resize an image grid while preserving its physical field of view."""
+    def __init__(self, size, interpolation='bilinear'):
+        """
+        Initialize image-grid resizing.
 
-    def __init__(self, size, interpolation: str = 'bilinear'):
+        Parameters
+        ----------
+        size : int or sequence of int
+            Output ``(height, width)``.
+        interpolation : {'nearest', 'bilinear', 'bicubic'}, default='bilinear'
+            Raster interpolation mode.
+        """
         self.size = _size(size)
         if interpolation not in _INTERPOLATION_ORDERS:
             raise ValueError(f'Unknown interpolation: {interpolation}')
         self.interpolation = interpolation
 
-    def _resize(self, spatial: SpatialImage, size=None):
+    def _resize(self, spatial, size=None):
+        """
+        Resize one spatial image to the configured or supplied shape.
+
+        Parameters
+        ----------
+        spatial : SpatialImage
+            Spatial image to resize.
+        size : tuple of int, optional
+            Override output ``(height, width)``.
+
+        Returns
+        -------
+        SpatialImage
+            Resized image with an updated spatial frame.
+        """
         size = self.size if size is None else size
         output_height, output_width = size
         input_width, input_height = spatial.geometry.width, spatial.geometry.height
@@ -346,13 +582,24 @@ class Resize(ImageTransform):
         )
 
     def __call__(self, image):
+        """
+        Resize one image or both members of a pair.
+        """
         return _apply_local(image, self._resize)
 
 
 class Resample(Resize):
-    """Resample at a target physical resolution while preserving field of view."""
+    def __init__(self, mpp, interpolation='bilinear'):
+        """
+        Initialize resampling at a target physical resolution.
 
-    def __init__(self, mpp: float | Sequence[float], interpolation: str = 'bilinear'):
+        Parameters
+        ----------
+        mpp : float or sequence of float
+            Target microns per pixel.
+        interpolation : {'nearest', 'bilinear', 'bicubic'}, default='bilinear'
+            Raster interpolation mode.
+        """
         mpp = (mpp, mpp) if isinstance(mpp, (int, float)) else tuple(mpp)
         if len(mpp) != 2 or any(value <= 0 for value in mpp):
             raise ValueError('Resolution must contain two positive values.')
@@ -362,7 +609,13 @@ class Resample(Resize):
             raise ValueError(f'Unknown interpolation: {interpolation}')
 
     def __call__(self, image):
+        """
+        Resample an image while preserving its physical field of view.
+        """
         def resample(spatial):
+            """
+            Resample one spatial image.
+            """
             width = max(1, round(spatial.geometry.width * spatial.geometry.mpp[0] / self.mpp[0]))
             height = max(1, round(spatial.geometry.height * spatial.geometry.mpp[1] / self.mpp[1]))
             return self._resize(spatial, (height, width))
@@ -371,15 +624,27 @@ class Resample(Resize):
 
 
 class RandomResizedCrop(ImageTransform, WorkerRandomMixin):
-    """Crop a random shared physical field and rasterize it to a fixed size."""
-
     def __init__(
         self,
         size,
         scale=(0.08, 1.0),
         ratio=(3 / 4, 4 / 3),
-        seed: int | None = None,
+        seed=None,
     ):
+        """
+        Initialize random crop-and-resize augmentation.
+
+        Parameters
+        ----------
+        size : int or sequence of int
+            Output ``(height, width)``.
+        scale : tuple of float, default=(0.08, 1.0)
+            Range of overlap-area fractions to crop.
+        ratio : tuple of float, default=(0.75, 1.333...)
+            Range of crop aspect ratios.
+        seed : int, optional
+            Base random seed.
+        """
         self.size = _size(size)
         if len(scale) != 2 or scale[0] <= 0 or scale[0] > scale[1] or scale[1] > 1:
             raise ValueError('Scale must be an increasing pair between zero and one.')
@@ -391,6 +656,9 @@ class RandomResizedCrop(ImageTransform, WorkerRandomMixin):
 
     @staticmethod
     def _overlap(image):
+        """
+        Return the physical overlap dimensions available for cropping.
+        """
         if isinstance(image, PairedImage):
             if image.registration is None:
                 raise ValueError('A registered pair is required for a shared random crop.')
@@ -403,6 +671,9 @@ class RandomResizedCrop(ImageTransform, WorkerRandomMixin):
         return np.maximum(upper - lower, 0)
 
     def __call__(self, image):
+        """
+        Crop a random physical field and rasterize it to a fixed size.
+        """
         overlap = self._overlap(image)
         area = overlap.prod()
         log_ratio = np.log(self.ratio)
@@ -427,18 +698,36 @@ class RandomResizedCrop(ImageTransform, WorkerRandomMixin):
 
 
 class RandomAffine(ImageTransform, WorkerRandomMixin):
-    """Apply a random affine reparameterization to one image or a pair."""
-
     def __init__(
         self,
         degrees,
         translate=None,
         scale=None,
         shear=None,
-        interpolation: str = 'nearest',
+        interpolation='nearest',
         fill=0,
-        seed: int | None = None,
+        seed=None,
     ):
+        """
+        Initialize random affine augmentation.
+
+        Parameters
+        ----------
+        degrees : float or tuple of float
+            Rotation range in degrees.
+        translate : tuple of float, optional
+            Maximum horizontal and vertical translation fractions.
+        scale : float or tuple of float, optional
+            Isotropic scale range.
+        shear : float or sequence of float, optional
+            Horizontal and optional vertical shear ranges in degrees.
+        interpolation : {'nearest', 'bilinear', 'bicubic'}, default='nearest'
+            Raster interpolation mode.
+        fill : scalar or sequence, default=0
+            Fill value outside the source extent.
+        seed : int, optional
+            Base random seed.
+        """
         self.degrees = self._range(degrees, symmetric=True, name='Degrees')
         if translate is not None and (len(translate) != 2 or any(value < 0 or value > 1 for value in translate)):
             raise ValueError('Translate must contain two fractions between zero and one.')
@@ -463,6 +752,9 @@ class RandomAffine(ImageTransform, WorkerRandomMixin):
 
     @staticmethod
     def _range(value, symmetric=False, name='Range', positive=False):
+        """
+        Normalize and validate a scalar or two-value range.
+        """
         if isinstance(value, (int, float)):
             values = (-float(value), float(value)) if symmetric else (float(value), float(value))
         else:
@@ -474,6 +766,9 @@ class RandomAffine(ImageTransform, WorkerRandomMixin):
         return values
 
     def __call__(self, image):
+        """
+        Apply a sampled affine transform to one image or a pair.
+        """
         angle = np.deg2rad(self._rng().uniform(*self.degrees))
         scale = 1.0 if self.scale is None else self._rng().uniform(*self.scale)
         shear_x = np.deg2rad(self._rng().uniform(*self.shear[:2]))
@@ -484,6 +779,9 @@ class RandomAffine(ImageTransform, WorkerRandomMixin):
         )
 
         def affine(spatial):
+            """
+            Apply the sampled affine transform to one spatial image.
+            """
             width, height = spatial.geometry.width, spatial.geometry.height
             center = ((width - 1) / 2, (height - 1) / 2)
             cosine, sine = np.cos(angle), np.sin(angle)

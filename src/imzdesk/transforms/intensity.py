@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from collections.abc import Sequence
-
 import numpy as np
 from scipy import ndimage
 from skimage import color
@@ -12,6 +8,9 @@ from imzdesk.transforms.base import Transform
 
 
 def _torch():
+    """
+    Return PyTorch when installed, otherwise return ``None``.
+    """
     try:
         import torch
     except ImportError:
@@ -20,12 +19,18 @@ def _torch():
 
 
 def _map_data(image, operation):
+    """
+    Apply an operation while preserving an optional spatial wrapper.
+    """
     if isinstance(image, SpatialImage):
         return SpatialImage(operation(image.data), image.geometry, image.pixel_to_reference)
     return operation(image)
 
 
 def _map_pair(image, operation):
+    """
+    Apply an operation to one image or both members of a pair.
+    """
     if isinstance(image, PairedImage):
         return PairedImage(
             _map_data(image.wsi, operation),
@@ -35,7 +40,20 @@ def _map_pair(image, operation):
     return _map_data(image, operation)
 
 
-def _kernel_size(value) -> tuple[int, int]:
+def _kernel_size(value):
+    """
+    Normalize and validate an odd two-dimensional kernel size.
+
+    Parameters
+    ----------
+    value : int or sequence of int
+        Scalar kernel size or ``(height, width)`` pair.
+
+    Returns
+    -------
+    tuple of int
+        Validated kernel dimensions.
+    """
     values = (value, value) if isinstance(value, int) else tuple(value)
     if len(values) != 2 or any(item <= 0 or item % 2 == 0 for item in values):
         raise ValueError('Kernel size must contain two positive odd values.')
@@ -43,6 +61,9 @@ def _kernel_size(value) -> tuple[int, int]:
 
 
 def _range(value, name, minimum=None, maximum=None, center=None):
+    """
+    Normalize and validate a scalar or two-value parameter range.
+    """
     if isinstance(value, (int, float)):
         if value < 0:
             raise ValueError(f'{name} must be nonnegative.')
@@ -63,18 +84,34 @@ def _range(value, name, minimum=None, maximum=None, center=None):
 
 
 class GaussianBlur(Transform, WorkerRandomMixin):
-    """Blur raster data with a Gaussian kernel."""
+    def __init__(self, kernel_size, sigma=(0.1, 2.0), seed=None):
+        """
+        Initialize Gaussian blur augmentation.
 
-    def __init__(self, kernel_size, sigma=(0.1, 2.0), seed: int | None = None):
+        Parameters
+        ----------
+        kernel_size : int or sequence of int
+            Odd kernel dimensions.
+        sigma : float or tuple of float, default=(0.1, 2.0)
+            Range from which the Gaussian standard deviation is sampled.
+        seed : int, optional
+            Base random seed.
+        """
         self.kernel_size = _kernel_size(kernel_size)
         self.sigma = _range(sigma, 'Sigma', minimum=np.finfo(float).eps)
         self._init_random(seed)
 
     def __call__(self, image):
+        """
+        Blur raster data using a randomly sampled Gaussian kernel.
+        """
         sigma = self._rng().uniform(*self.sigma)
         return _map_pair(image, lambda data: self._blur(data, sigma))
 
     def _blur(self, image, sigma):
+        """
+        Blur a NumPy array or PyTorch tensor.
+        """
         torch = _torch()
         if torch is not None and isinstance(image, torch.Tensor):
             return self._blur_tensor(image, sigma, torch)
@@ -96,6 +133,9 @@ class GaussianBlur(Transform, WorkerRandomMixin):
         return result.astype(image.dtype, copy=False)
 
     def _blur_tensor(self, image, sigma, torch):
+        """
+        Blur a channel-first tensor using grouped convolution.
+        """
         import torch.nn.functional as functional
 
         if image.ndim not in (2, 3):
@@ -122,16 +162,30 @@ class GaussianBlur(Transform, WorkerRandomMixin):
 
 
 class ColorJitter(Transform, WorkerRandomMixin):
-    """Randomly jitter WSI brightness, contrast, saturation, and hue."""
-
     def __init__(
         self,
         brightness=0,
         contrast=0,
         saturation=0,
         hue=0,
-        seed: int | None = None,
+        seed=None,
     ):
+        """
+        Initialize random RGB color jitter.
+
+        Parameters
+        ----------
+        brightness : float or tuple of float, default=0
+            Brightness factor range or symmetric magnitude around one.
+        contrast : float or tuple of float, default=0
+            Contrast factor range or symmetric magnitude around one.
+        saturation : float or tuple of float, default=0
+            Saturation factor range or symmetric magnitude around one.
+        hue : float or tuple of float, default=0
+            Hue offset range or symmetric magnitude around zero.
+        seed : int, optional
+            Base random seed.
+        """
         self.brightness = _range(brightness, 'Brightness', minimum=0, center=1)
         self.contrast = _range(contrast, 'Contrast', minimum=0, center=1)
         self.saturation = _range(saturation, 'Saturation', minimum=0, center=1)
@@ -139,6 +193,9 @@ class ColorJitter(Transform, WorkerRandomMixin):
         self._init_random(seed)
 
     def __call__(self, image):
+        """
+        Randomly jitter WSI brightness, contrast, saturation, and hue.
+        """
         parameters = {
             'brightness': self._rng().uniform(*self.brightness),
             'contrast': self._rng().uniform(*self.contrast),
@@ -148,6 +205,9 @@ class ColorJitter(Transform, WorkerRandomMixin):
         order = self._rng().permutation(tuple(parameters))
 
         def jitter(data):
+            """
+            Apply the sampled color operations to one RGB array.
+            """
             if not isinstance(data, np.ndarray) or data.ndim != 3 or data.shape[2] != 3:
                 raise TypeError('ColorJitter expects a channel-last RGB NumPy image.')
             original_dtype = data.dtype
@@ -178,16 +238,30 @@ class ColorJitter(Transform, WorkerRandomMixin):
 
 
 class RandomErasing(Transform, WorkerRandomMixin):
-    """Erase a random raster region, sharing normalized bounds across a pair."""
-
     def __init__(
         self,
-        p: float = 0.5,
+        p=0.5,
         scale=(0.02, 0.33),
         ratio=(0.3, 3.3),
         value=0,
-        seed: int | None = None,
+        seed=None,
     ):
+        """
+        Initialize random rectangular erasing.
+
+        Parameters
+        ----------
+        p : float, default=0.5
+            Probability of erasing a sample.
+        scale : tuple of float, default=(0.02, 0.33)
+            Range of image-area fractions to erase.
+        ratio : tuple of float, default=(0.3, 3.3)
+            Range of erased-region aspect ratios.
+        value : scalar or sequence, default=0
+            Replacement value for erased pixels.
+        seed : int, optional
+            Base random seed.
+        """
         if not 0 <= p <= 1:
             raise ValueError('Probability must be between zero and one.')
         if len(scale) != 2 or scale[0] < 0 or scale[0] > scale[1] or scale[1] > 1:
@@ -201,6 +275,9 @@ class RandomErasing(Transform, WorkerRandomMixin):
         self._init_random(seed)
 
     def __call__(self, image):
+        """
+        Erase a random region, sharing normalized bounds across a pair.
+        """
         if self._rng().random() >= self.p:
             return image
         area = self._rng().uniform(*self.scale)
@@ -213,6 +290,9 @@ class RandomErasing(Transform, WorkerRandomMixin):
         )
 
     def _erase(self, image, area_fraction, aspect, vertical, horizontal):
+        """
+        Erase a sampled rectangular region from one raster.
+        """
         torch = _torch()
         tensor = torch is not None and isinstance(image, torch.Tensor)
         if tensor:
@@ -237,6 +317,9 @@ class RandomErasing(Transform, WorkerRandomMixin):
         return result
 
     def _value_for(self, image, tensor, torch):
+        """
+        Format configured erase values for a raster's channels.
+        """
         if np.isscalar(self.value):
             return self.value
         channels = 1 if image.ndim == 2 else image.shape[0 if tensor else 2]
@@ -251,18 +334,32 @@ class RandomErasing(Transform, WorkerRandomMixin):
 
 
 class ChannelNormalize(Transform):
-    """Normalize raster channels with fixed means and standard deviations."""
-
     def __init__(self, mean, std):
+        """
+        Initialize fixed per-channel normalization.
+
+        Parameters
+        ----------
+        mean : float or sequence of float
+            Mean removed from each channel.
+        std : float or sequence of float
+            Positive standard deviation for each channel.
+        """
         self.mean = np.atleast_1d(np.asarray(mean, dtype=np.float64))
         self.std = np.atleast_1d(np.asarray(std, dtype=np.float64))
         if len(self.mean) != len(self.std) or np.any(self.std <= 0):
             raise ValueError('Mean and standard deviation must have equal lengths and positive deviations.')
 
     def __call__(self, image):
+        """
+        Normalize one raster or both members of a pair.
+        """
         return _map_pair(image, self._normalize)
 
     def _normalize(self, image):
+        """
+        Normalize a NumPy array or PyTorch tensor by channel.
+        """
         torch = _torch()
         if torch is not None and isinstance(image, torch.Tensor):
             values = image if torch.is_floating_point(image) else image.float()

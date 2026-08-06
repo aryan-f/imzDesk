@@ -12,21 +12,19 @@ class Compose(Transform):
 
     def __init__(self, transforms):
         """
-        Chain several transforms.
+        Initialize an ordered sequence of transforms.
 
         Parameters
         ----------
-        transforms:
-            Callable transforms applied in order.
-
-        Attributes
-        ----------
-        transforms: list
+        transforms : sequence of callable
             Callable transforms applied in order.
         """
         self.transforms = list(transforms)
 
     def __call__(self, image):
+        """
+        Apply each transform in sequence to an image-like value.
+        """
         for transform in self.transforms:
             image = transform(image)
         return image
@@ -34,24 +32,33 @@ class Compose(Transform):
 
 class Normalize(Transform):
 
-    def __init__(self, method: str | None = 'tic'):
+    def __init__(self, method='tic'):
         """
-        Normalize sparse pixel values.
+        Initialize per-spectrum normalization for a ragged image.
 
         Parameters
         ----------
-        method:
+        method : str, optional
             Normalization method. Supported values are ``'none'``, ``'tic'``,
             ``'rms'``, ``'median'``, ``'max'``, and ``'log1p'``.
 
-        Attributes
-        ----------
-        method: str | None
-            Normalization method.
         """
         self.method = method
 
-    def __call__(self, image: RImage) -> RImage:
+    def __call__(self, image):
+        """
+        Normalize every spectrum in a ragged image.
+
+        Parameters
+        ----------
+        image : RImage
+            Ragged image to normalize.
+
+        Returns
+        -------
+        RImage
+            Shallow image copy containing normalized values.
+        """
         method = 'none' if self.method is None else self.method.lower()
         normalized = copy.copy(image)
         if method == 'none':
@@ -83,33 +90,38 @@ class Normalize(Transform):
 
 class Bin(Transform):
 
-    def __init__(self, minimum_channel: float = 50.0, maximum_channel: float = 1000.0, bin_width: float = 2.0):
+    def __init__(self, minimum_channel=50.0, maximum_channel=1000.0, bin_width=2.0):
         """
-        Bin ragged sparse pixels into rectangular sparse features.
+        Initialize binning from ragged spectra to rectangular sparse features.
 
         Parameters
         ----------
-        minimum_channel:
+        minimum_channel : float, default=50.0
             Inclusive lower channel bound.
-        maximum_channel:
+        maximum_channel : float, default=1000.0
             Exclusive upper channel bound.
-        bin_width:
+        bin_width : float, default=2.0
             Width of each channel bin.
 
-        Attributes
-        ----------
-        minimum_channel: float
-            Inclusive lower channel bound.
-        maximum_channel: float
-            Exclusive upper channel bound.
-        bin_width: float
-            Width of each channel bin.
         """
         self.minimum_channel = minimum_channel
         self.maximum_channel = maximum_channel
         self.bin_width = bin_width
 
-    def __call__(self, image: RImage) -> SImage:
+    def __call__(self, image):
+        """
+        Bin ragged spectra into a shared sparse feature matrix.
+
+        Parameters
+        ----------
+        image : RImage
+            Ragged image to bin.
+
+        Returns
+        -------
+        SImage
+            Sparse rectangular image over the configured bins.
+        """
         bin_edges = np.arange(self.minimum_channel, self.maximum_channel + self.bin_width, self.bin_width, dtype=np.float64)
         number_of_bins = bin_edges.size - 1
         feature_rows = []
@@ -145,7 +157,20 @@ class ToDense(Transform):
     Convert a sparse image with rectangular features into a dense image.
     """
 
-    def __call__(self, image: SImage | DImage) -> DImage:
+    def __call__(self, image):
+        """
+        Convert a sparse rectangular image to dense storage.
+
+        Parameters
+        ----------
+        image : SImage or DImage
+            Image to convert.
+
+        Returns
+        -------
+        DImage
+            Dense image, or the unchanged input when already dense.
+        """
         if isinstance(image, DImage):
             return image
         return DImage(
@@ -156,24 +181,33 @@ class ToDense(Transform):
 
 class Scale(Transform):
 
-    def __init__(self, method: str = 'robust'):
+    def __init__(self, method='robust'):
         """
-        Scale each dense feature across pixels.
+        Initialize feature scaling across measured pixels.
 
         Parameters
         ----------
-        method:
+        method : {'robust', 'minmax', 'zscore'}, default='robust'
             Scaling method. Supported values are ``'robust'`` (median and
             interquartile range), ``'minmax'``, and ``'zscore'``.
 
-        Attributes
-        ----------
-        method: str
-            Scaling method.
         """
         self.method = method
 
-    def __call__(self, image: SImage | DImage) -> SImage | DImage:
+    def __call__(self, image):
+        """
+        Scale features across all measured pixels.
+
+        Parameters
+        ----------
+        image : SImage or DImage
+            Rectangular image to scale.
+
+        Returns
+        -------
+        SImage or DImage
+            Scaled image with the same storage representation.
+        """
         if isinstance(image, SImage):
             return self._scale_sparse(image)
 
@@ -201,7 +235,20 @@ class Scale(Transform):
             scaled = scaled[:, 0]
         return DImage(values=scaled, coordinates=image.coordinates.copy())
 
-    def _scale_sparse(self, image: SImage) -> SImage:
+    def _scale_sparse(self, image):
+        """
+        Apply min-max scaling without densifying a sparse image.
+
+        Parameters
+        ----------
+        image : SImage
+            Sparse rectangular image.
+
+        Returns
+        -------
+        SImage
+            Min-max scaled sparse image.
+        """
         if self.method.lower() != 'minmax':
             raise ValueError('Sparse images only support min-max scaling.')
 
@@ -227,7 +274,20 @@ class TIC(Transform):
     Sum each pixel's feature vector into one intensity value.
     """
 
-    def __call__(self, sparse_image: SImage) -> DImage:
+    def __call__(self, sparse_image):
+        """
+        Sum every sparse feature vector into total ion current.
+
+        Parameters
+        ----------
+        sparse_image : SImage
+            Sparse rectangular image.
+
+        Returns
+        -------
+        DImage
+            Scalar total ion current per pixel.
+        """
         return DImage(
             values=np.asarray(sparse_image.values.sum(axis=1)).ravel(),
             coordinates=sparse_image.coordinates.copy(),
@@ -236,28 +296,35 @@ class TIC(Transform):
 
 class PCA(Transform):
 
-    def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+    def __init__(self, number_of_components=3, random_seed=0):
         """
         Reduce dense images with principal component analysis.
 
         Parameters
         ----------
-        number_of_components:
+        number_of_components : int, default=3
             Number of principal components to return.
-        random_seed:
+        random_seed : int, default=0
             Seed used by randomized PCA.
 
-        Attributes
-        ----------
-        number_of_components: int
-            Number of principal components to return.
-        random_seed: int
-            Seed used by randomized PCA.
         """
         self.number_of_components = number_of_components
         self.random_seed = random_seed
 
-    def __call__(self, dense_image: DImage) -> DImage:
+    def __call__(self, dense_image):
+        """
+        Project dense features onto their principal components.
+
+        Parameters
+        ----------
+        dense_image : DImage
+            Dense rectangular image.
+
+        Returns
+        -------
+        DImage
+            Principal component scores and source coordinates.
+        """
         values = decomposition.PCA(
             n_components=self.number_of_components,
             svd_solver='randomized',
@@ -268,28 +335,35 @@ class PCA(Transform):
 
 class NMF(Transform):
 
-    def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+    def __init__(self, number_of_components=3, random_seed=0):
         """
         Reduce sparse or dense images with non-negative matrix factorization.
 
         Parameters
         ----------
-        number_of_components:
+        number_of_components : int, default=3
             Number of NMF components to return.
-        random_seed:
+        random_seed : int, default=0
             Seed used by the NMF initializer.
 
-        Attributes
-        ----------
-        number_of_components: int
-            Number of NMF components to return.
-        random_seed: int
-            Seed used by the NMF initializer.
         """
         self.number_of_components = number_of_components
         self.random_seed = random_seed
 
-    def __call__(self, image: SImage | DImage) -> DImage:
+    def __call__(self, image):
+        """
+        Factor nonnegative image features into component scores.
+
+        Parameters
+        ----------
+        image : SImage or DImage
+            Nonnegative rectangular image.
+
+        Returns
+        -------
+        DImage
+            Nonnegative component scores and source coordinates.
+        """
         values = decomposition.NMF(
             n_components=self.number_of_components,
             init='nndsvda',
@@ -301,28 +375,35 @@ class NMF(Transform):
 
 class TSNE(Transform):
 
-    def __init__(self, number_of_components: int = 3, random_seed: int = 0):
+    def __init__(self, number_of_components=3, random_seed=0):
         """
         Reduce dense images with t-SNE after PCA preprojection.
 
         Parameters
         ----------
-        number_of_components:
+        number_of_components : int, default=3
             Number of t-SNE dimensions to return.
-        random_seed:
+        random_seed : int, default=0
             Seed used by PCA preprojection and t-SNE.
 
-        Attributes
-        ----------
-        number_of_components: int
-            Number of t-SNE dimensions to return.
-        random_seed: int
-            Seed used by PCA preprojection and t-SNE.
         """
         self.number_of_components = number_of_components
         self.random_seed = random_seed
 
-    def __call__(self, dense_image: DImage) -> DImage:
+    def __call__(self, dense_image):
+        """
+        Embed dense features with PCA followed by t-SNE.
+
+        Parameters
+        ----------
+        dense_image : DImage
+            Dense rectangular image.
+
+        Returns
+        -------
+        DImage
+            t-SNE coordinates and source spatial coordinates.
+        """
         pca_projection = decomposition.PCA(
             n_components=32, random_state=self.random_seed
         ).fit_transform(dense_image.values)
@@ -339,34 +420,39 @@ class TSNE(Transform):
 
 class Project(Transform):
 
-    def __init__(self, number_of_components: int = 8, tissue_fraction: float = 0.1, background_fraction: float = 0.1):
+    def __init__(self, number_of_components=8, tissue_fraction=0.1, background_fraction=0.1):
         """
         Project dense features onto a tissue/background direction.
 
         Parameters
         ----------
-        number_of_components:
+        number_of_components : int, default=8
             Number of leading PCA components used to identify high-energy
             tissue seeds.
-        tissue_fraction:
+        tissue_fraction : float, default=0.1
             Fraction of pixels used as tissue seeds.
-        background_fraction:
+        background_fraction : float, default=0.1
             Corner fraction used as background seeds.
 
-        Attributes
-        ----------
-        number_of_components: int
-            Number of leading PCA components.
-        tissue_fraction: float
-            Fraction of pixels used as tissue seeds.
-        background_fraction: float
-            Corner fraction used as background seeds.
         """
         self.number_of_components = number_of_components
         self.tissue_fraction = tissue_fraction
         self.background_fraction = background_fraction
 
-    def __call__(self, image: DImage) -> DImage:
+    def __call__(self, image):
+        """
+        Project dense features onto a tissue-background direction.
+
+        Parameters
+        ----------
+        image : DImage
+            Dense embedding image.
+
+        Returns
+        -------
+        DImage
+            Scalar tissue-likelihood image.
+        """
         values = np.asarray(image.values, dtype=np.float32)
         number_of_components = min(self.number_of_components, values.shape[1], len(values))
         projected = decomposition.PCA(n_components=number_of_components, random_state=0).fit_transform(values)

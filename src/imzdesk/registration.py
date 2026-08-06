@@ -9,29 +9,29 @@ from imzdesk.core import Transform
 def register(
     wsi,
     msi,
-    target_mpp: float | tuple[float, float] | None = None,
-    model: str = 'roman-bushuiev/DreaMS',
-    batch_size: int = 128,
-) -> Transform:
+    target_mpp=None,
+    model='roman-bushuiev/DreaMS',
+    batch_size=128,
+):
     """
     Register an MSI acquisition to a WSI.
 
     Parameters
     ----------
-    wsi:
+    wsi : imzdesk.io.WSI
         Fixed whole-slide image.
-    msi:
+    msi : imzdesk.io.MSI
         Moving MSI acquisition.
-    target_mpp:
+    target_mpp : float or tuple of float, optional
         Registration raster resolution. Defaults to the axis-wise MSI mpp.
-    model:
+    model : str, default='roman-bushuiev/DreaMS'
         Embedding model used for the MSI surrogate.
-    batch_size:
+    batch_size : int, default=128
         Number of spectra embedded in each inference batch.
 
     Returns
     -------
-    transform: Transform
+    Transform
         Transform mapping MSI surrogate pixel coordinates into WSI surrogate
         pixel coordinates.
     """
@@ -58,9 +58,23 @@ def register(
     return transform
 
 
-def apply_wsi_crop_offset(wsi, target_mpp: float | tuple[float, float], transform: Transform) -> Transform:
+def apply_wsi_crop_offset(wsi, target_mpp, transform):
     """
     Convert a crop-local WSI transform into full-slide WSI coordinates.
+
+    Parameters
+    ----------
+    wsi : imzdesk.io.WSI
+        Whole-slide image that supplied the fixed registration raster.
+    target_mpp : float or tuple of float
+        Registration raster resolution in microns per pixel.
+    transform : Transform
+        Transform expressed in crop-local WSI coordinates.
+
+    Returns
+    -------
+    Transform
+        Transform expressed in full-slide WSI coordinates.
     """
     if wsi.metadata.crop is None:
         return transform
@@ -75,6 +89,18 @@ def apply_wsi_crop_offset(wsi, target_mpp: float | tuple[float, float], transfor
 def centroid(mask, weights=None):
     """
     Return an ``(x, y)`` centroid for a mask or scalar image.
+
+    Parameters
+    ----------
+    mask : array-like
+        Mask or scalar image.
+    weights : array-like, optional
+        Additional per-pixel weights.
+
+    Returns
+    -------
+    numpy.ndarray
+        Two-element ``(x, y)`` centroid.
     """
     values = np.asarray(mask, dtype=np.float64)
     if weights is not None:
@@ -87,9 +113,21 @@ def centroid(mask, weights=None):
     return np.array([(x * values).sum() / total, (y * values).sum() / total], dtype=np.float64)
 
 
-def centroid_initialization(fixed_mask, moving_mask) -> Transform:
+def centroid_initialization(fixed_mask, moving_mask):
     """
     Initialize translation by aligning moving and fixed centroids.
+
+    Parameters
+    ----------
+    fixed_mask : array-like
+        Fixed binary mask.
+    moving_mask : array-like
+        Moving binary mask.
+
+    Returns
+    -------
+    Transform
+        Centroid-aligning translation.
     """
     fixed_centroid = centroid(fixed_mask)
     moving_centroid = centroid(moving_mask)
@@ -97,9 +135,27 @@ def centroid_initialization(fixed_mask, moving_mask) -> Transform:
     return Transform.translation(shift[0], shift[1])
 
 
-def rotation_sweep(fixed_mask, moving_mask, transform: Transform, angle_step: float = 5.0, alpha: float = 0.25) -> Transform:
+def rotation_sweep(fixed_mask, moving_mask, transform, angle_step=5.0, alpha=0.25):
     """
-    Sweep rotations and keep the transform with the best NCC/IoU score.
+    Keep the rotation with the best combined NCC and IoU score.
+
+    Parameters
+    ----------
+    fixed_mask : array-like
+        Fixed binary mask.
+    moving_mask : array-like
+        Moving binary mask.
+    transform : Transform
+        Initial moving-to-fixed transform.
+    angle_step : float, default=5.0
+        Rotation increment in degrees.
+    alpha : float, default=0.25
+        IoU contribution to the combined score.
+
+    Returns
+    -------
+    Transform
+        Best transform found by the sweep.
     """
     fixed = np.asarray(fixed_mask, dtype=bool)
     moving = np.asarray(moving_mask, dtype=bool)
@@ -116,9 +172,27 @@ def rotation_sweep(fixed_mask, moving_mask, transform: Transform, angle_step: fl
     return best_transform
 
 
-def chamfer_refine(fixed_mask, moving_mask, transform: Transform, max_iterations: int = 80, distance_clip: float = 25.0) -> Transform:
+def chamfer_refine(fixed_mask, moving_mask, transform, max_iterations=80, distance_clip=25.0):
     """
-    Refine a rigid transform with coordinate pattern search over Chamfer loss.
+    Refine a rigid transform by pattern search over Chamfer loss.
+
+    Parameters
+    ----------
+    fixed_mask : array-like
+        Fixed binary mask.
+    moving_mask : array-like
+        Moving binary mask.
+    transform : Transform
+        Initial moving-to-fixed transform.
+    max_iterations : int, default=80
+        Maximum number of pattern-search iterations.
+    distance_clip : float, default=25.0
+        Maximum contour distance included in the loss.
+
+    Returns
+    -------
+    Transform
+        Refined transform.
     """
     angle_step = np.deg2rad(2.0)
     translation_step = 5.0
@@ -152,9 +226,25 @@ def chamfer_refine(fixed_mask, moving_mask, transform: Transform, max_iterations
     return current
 
 
-def chamfer_loss(fixed_mask, moving_mask, transform: Transform, distance_clip: float = 25.0) -> float:
+def chamfer_loss(fixed_mask, moving_mask, transform, distance_clip=25.0):
     """
-    Symmetric clipped boundary Chamfer loss.
+    Calculate symmetric clipped boundary Chamfer loss.
+
+    Parameters
+    ----------
+    fixed_mask : array-like
+        Fixed binary mask.
+    moving_mask : array-like
+        Moving binary mask.
+    transform : Transform
+        Moving-to-fixed transform.
+    distance_clip : float, default=25.0
+        Maximum contour distance included in the loss.
+
+    Returns
+    -------
+    float
+        Normalized symmetric Chamfer loss.
     """
     fixed = np.asarray(fixed_mask, dtype=bool)
     moving = np.asarray(moving_mask, dtype=bool)
@@ -174,14 +264,40 @@ def chamfer_loss(fixed_mask, moving_mask, transform: Transform, distance_clip: f
 def contour(mask):
     """
     Return a one-pixel binary contour for a mask.
+
+    Parameters
+    ----------
+    mask : array-like
+        Binary mask.
+
+    Returns
+    -------
+    numpy.ndarray
+        Binary contour mask.
     """
     mask = np.asarray(mask, dtype=bool)
     return mask ^ morphology.erosion(mask)
 
 
-def warp(image, transform: Transform, output_shape, order: int = 1):
+def warp(image, transform, output_shape, order=1):
     """
-    Warp ``image`` into ``output_shape`` using a moving-to-fixed transform.
+    Warp an image using a moving-to-fixed transform.
+
+    Parameters
+    ----------
+    image : array-like
+        Moving image.
+    transform : Transform
+        Moving-to-fixed transform.
+    output_shape : tuple of int
+        Fixed output ``(height, width)``.
+    order : int, default=1
+        Spline interpolation order.
+
+    Returns
+    -------
+    numpy.ndarray
+        Warped image.
     """
     inverse = transform.inverse()
     y, x = np.indices(output_shape)
@@ -197,9 +313,21 @@ def warp(image, transform: Transform, output_shape, order: int = 1):
     return sampled.reshape(output_shape)
 
 
-def iou(fixed_mask, moving_mask) -> float:
+def iou(fixed_mask, moving_mask):
     """
-    Intersection-over-union for two masks.
+    Calculate intersection over union for two masks.
+
+    Parameters
+    ----------
+    fixed_mask : array-like
+        First binary mask.
+    moving_mask : array-like
+        Second binary mask.
+
+    Returns
+    -------
+    float
+        Intersection-over-union score.
     """
     fixed = np.asarray(fixed_mask, dtype=bool)
     moving = np.asarray(moving_mask, dtype=bool)
@@ -209,9 +337,21 @@ def iou(fixed_mask, moving_mask) -> float:
     return np.logical_and(fixed, moving).sum() / union
 
 
-def ncc(fixed_mask, moving_mask) -> float:
+def ncc(fixed_mask, moving_mask):
     """
-    Normalized cross-correlation for two images or masks.
+    Calculate normalized cross-correlation for two images or masks.
+
+    Parameters
+    ----------
+    fixed_mask : array-like
+        First image or mask.
+    moving_mask : array-like
+        Second image or mask.
+
+    Returns
+    -------
+    float
+        Normalized cross-correlation score.
     """
     fixed = np.asarray(fixed_mask, dtype=np.float64)
     moving = np.asarray(moving_mask, dtype=np.float64)
