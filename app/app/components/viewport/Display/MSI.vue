@@ -19,6 +19,11 @@ function cloneDisplay(display: MSIDisplay): MSIDisplay {
 }
 
 const draft = reactive<MSIDisplay>(cloneDisplay(props.display))
+const { presets, savePreset, deletePreset } = useMsiDisplayPresets()
+const namingPreset = ref(false)
+const presetName = ref('')
+const presetError = ref('')
+const validPresetName = computed(() => Boolean(presetName.value.trim()))
 
 const normalizationOptions = [
   { label: 'None', value: 'none' },
@@ -138,6 +143,45 @@ watch(
 function apply() {
   emit('apply', cloneDisplay(draft))
 }
+
+function setDraft(display: MSIDisplay) {
+  const next = cloneDisplay(display)
+  draft.preprocessing = next.preprocessing
+  draft.cubing = next.cubing
+  draft.reduction = next.reduction
+}
+
+function beginPreset() {
+  presetName.value = ''
+  presetError.value = ''
+  namingPreset.value = true
+}
+
+function cancelPreset() {
+  presetName.value = ''
+  presetError.value = ''
+  namingPreset.value = false
+}
+
+function saveCurrentPreset() {
+  if (!validPresetName.value) return
+  if (!savePreset(presetName.value, cloneDisplay(draft))) {
+    presetError.value = 'Unable to save presets in this browser.'
+    return
+  }
+  cancelPreset()
+}
+
+function applyPreset(display: MSIDisplay) {
+  setDraft(display)
+  apply()
+}
+
+function removePreset(id: string) {
+  if (!deletePreset(id)) {
+    presetError.value = 'Unable to update presets in this browser.'
+  }
+}
 </script>
 
 <template>
@@ -161,6 +205,37 @@ function apply() {
           <UButton label="Apply" color="secondary" variant="soft" size="sm" :loading="loading" :disabled="loading" @click="apply" />
         </div>
         <div class="space-y-3">
+          <section class="space-y-2">
+            <div class="flex items-center justify-between gap-2 text-xs font-medium uppercase text-muted">
+              <span class="flex items-center gap-2">
+                <UIcon name="i-lucide-bookmark" class="size-3.5" />
+                Presets
+              </span>
+              <UButton label="Save" icon="i-lucide-bookmark-plus" color="neutral" variant="ghost" size="xs" :disabled="namingPreset" @click="beginPreset" />
+            </div>
+            <div v-if="namingPreset" class="flex items-start gap-1.5">
+              <UFormField :error="presetError || undefined" class="min-w-0 flex-1">
+                <UInput v-model="presetName" autofocus maxlength="64" placeholder="Preset name" size="sm" class="w-full" @keyup.enter="saveCurrentPreset" @keyup.esc="cancelPreset" />
+              </UFormField>
+              <UTooltip text="Save preset">
+                <UButton aria-label="Save preset" icon="i-lucide-save" color="secondary" variant="soft" size="sm" square :disabled="!validPresetName" @click="saveCurrentPreset" />
+              </UTooltip>
+              <UTooltip text="Cancel">
+                <UButton aria-label="Cancel preset" icon="i-lucide-x" color="neutral" variant="ghost" size="sm" square @click="cancelPreset" />
+              </UTooltip>
+            </div>
+            <div v-if="presets.length" class="flex max-h-32 flex-wrap gap-1 overflow-y-auto pr-1">
+              <div v-for="preset in presets" :key="preset.id" class="inline-flex min-w-0 max-w-full overflow-hidden rounded-md bg-elevated">
+                <UButton :label="preset.name" icon="i-lucide-bookmark" color="neutral" variant="ghost" size="xs" class="min-w-0 max-w-48 justify-start rounded-none hover:bg-primary/15 hover:text-primary" :disabled="loading" @click="applyPreset(preset.display)" />
+                <UTooltip :text="`Delete ${preset.name}`">
+                  <UButton :aria-label="`Delete ${preset.name}`" icon="i-lucide-x" color="neutral" variant="ghost" size="xs" square class="rounded-none" @click="removePreset(preset.id)" />
+                </UTooltip>
+              </div>
+            </div>
+            <p v-if="presetError && !namingPreset" class="text-xs text-error">
+              {{ presetError }}
+            </p>
+          </section>
           <section class="space-y-2">
             <div class="flex items-center gap-2 text-xs font-medium uppercase text-muted">
               <UIcon name="i-lucide-sliders-horizontal" class="size-3.5" />
