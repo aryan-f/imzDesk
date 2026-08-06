@@ -1,4 +1,4 @@
-# imzDesk: WSI-MSI Workbench
+# imzDesk
 
 ![Build Status](https://img.shields.io/github/actions/workflow/status/aryan-f/imzDesk/build.yml)
 [![codecov](https://codecov.io/gh/aryan-f/imzDesk/graph/badge.svg)](https://codecov.io/gh/aryan-f/imzDesk)
@@ -15,20 +15,71 @@
   />
 </p>
 
-**imzDesk** is an open-source web-based workbench and Python library that enables multi-modal analysis and modeling of Whole Slide Images (WSIs) and Mass Spectrometry Images (MSIs).
+imzDesk is an open-source workbench and Python library for working with whole-slide imaging (WSI) and mass
+spectrometry imaging (MSI) data. Its browser-based workspace supports image inspection, MSI visualization, pixel-level
+spectrum comparison, WSI-MSI registration, annotation, and dataset curation. The Python API provides the same image
+types and preprocessing tools for building reproducible analysis and model-training pipelines.
 
-## Prerequisites
+## Requirements
 
-[`libopenslide`](https://openslide.org/download/)
+- Python 3.12 or newer
+- The native [OpenSlide](https://openslide.org/download/) library
+
+OpenSlide must be installed through your operating system before installing imzDesk. For example:
+
+```shell
+# Ubuntu or Debian
+sudo apt install libopenslide0
+
+# macOS with Homebrew
+brew install openslide
+```
+
+See the [OpenSlide installation instructions](https://openslide.org/download/) for other platforms.
 
 ## Installation
 
-```shell
-pip install "imzdesk[embeddings,examples]"
-```
-
-## Usage
+Install imzDesk from PyPI:
 
 ```shell
-imzdesk <dirpath>
+python -m pip install imzdesk
 ```
+
+Optional dependency groups add model-based spectral embeddings or the Jupyter environment used by the example
+notebooks:
+
+```shell
+# Model-based embeddings with PyTorch
+python -m pip install "imzdesk[embeddings]"
+
+# Jupyter example notebooks
+python -m pip install "imzdesk[examples]"
+
+# Both optional groups
+python -m pip install "imzdesk[embeddings,examples]"
+```
+
+## Start the Workbench
+
+Point imzDesk at a directory containing the images you want to work with:
+
+```shell
+imzdesk /path/to/workspace
+```
+
+Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in a browser. imzDesk scans the workspace recursively for
+supported WSI files and imzML datasets. Each `.imzML` file must have its corresponding `.ibd` file beside it.
+Application metadata, annotations, cached data, registrations, and dataset manifests are stored in hidden `.imzDesk`
+directories alongside the source data.
+
+Run `imzdesk --help` to see server options such as the host, port, inference device, and logging level.
+
+## Documentation
+
+The [imzDesk documentation](https://med-i-lab.gitbook.io/imzdesk) contains manuals for the web workbench and the Python
+API reference. The [`examples`](examples) directory also contains executable notebooks covering image transforms,
+registration, and PyTorch dataset preparation.
+
+## License
+
+imzDesk is distributed under the [Apache License 2.0](LICENSE).
