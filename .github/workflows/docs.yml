@@ -1,0 +1,41 @@
+name: Check documentation
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'docs/**'
+      - '.gitbook.yaml'
+      - 'src/imzdesk/core/**'
+      - 'src/imzdesk/data/**'
+      - 'src/imzdesk/io/**'
+      - 'src/imzdesk/transforms/**'
+      - 'src/imzdesk/registration.py'
+      - 'src/imzdesk/visualization/**'
+      - 'tools/generate_api_docs.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.23'
+          enable-cache: true
+
+      - name: Check generated API reference
+        run: uv run --frozen --only-group docs python tools/generate_api_docs.py --check
