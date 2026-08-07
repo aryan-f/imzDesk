@@ -481,29 +481,6 @@ def render_page(page):
     return '\n'.join(lines).rstrip() + '\n'
 
 
-def render_index():
-    """
-    Render the API reference landing page.
-    """
-    return f'''{GENERATED_NOTICE}
-
-# API reference
-
-The API reference documents the supported public Python interface outside
-`imzdesk.server`. The pages are generated from NumPy-style docstrings in the
-source code.
-
-## Packages
-
-- [Core types](core.md)
-- [Datasets](data.md)
-- [Image input and output](io.md)
-- [Registration](registration.md)
-- [Visualization](visualization.md)
-- [Transforms](transforms/README.md)
-'''
-
-
 def render_transforms_index():
     """
     Render the transforms landing page.
@@ -573,7 +550,6 @@ def generated_files():
     Return every generated path and its expected content.
     """
     files = {
-        DOCS / 'README.md': render_index(),
         DOCS / 'transforms' / 'README.md': render_transforms_index(),
     }
     files.update({DOCS / page.output: render_page(page) for page in PAGES})

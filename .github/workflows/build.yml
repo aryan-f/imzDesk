@@ -7,6 +7,7 @@ on:
     paths-ignore:
       - 'docs/**'
       - '.gitbook.yaml'
+      - 'tools/generate_api_docs.py'
   workflow_dispatch:
 
 jobs:
