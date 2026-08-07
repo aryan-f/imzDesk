@@ -1,3 +1,0 @@
-# Manuals
-
-To be completed.
