@@ -6,8 +6,8 @@ imzDesk is an open-source workbench and Python library for whole-slide imaging (
 
 ## Start with imzDesk
 
-* To work with images in the browser, see the [manuals](/broken/pages/Vc6oHxt9dFbWcHfZQv9V).
-* To use imzDesk from Python, see the [API reference](/broken/pages/VGeQUTbNvkxm59VUnair).
+* To work with images in the browser, see [Set up imzDesk](manuals/set-up-imzdesk.md).
+* To use imzDesk from Python, see the [core API reference](api-reference/core.md).
 * To install and launch imzDesk, see the [project README](https://github.com/aryan-f/imzDesk#readme).
 
 ## Project resources
